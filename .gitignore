@@ -1,0 +1,53 @@
+# ============================================================================
+#  小笨蛋 · 提交忽略清单
+#  原则：只提交「源码 + 小资源」，大二进制走 Release 或脚本下载
+# ============================================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ---------- 第三方库（55 MB，pip 装就行，不进 Git）----------
+vendor/
+
+# ---------- 打包产物（483 MB，走 Release）----------
+dist/
+build/
+_internal/
+*.spec.bak
+小笨蛋.exe
+
+# ---------- 大模型（66 MB 语音模型走脚本下载）----------
+core/models/stt/
+# 识图模型 39 MB 太大，也走 Release —— 见 README「模型下载」
+core/models/*.onnx
+
+# ---------- 程序运行后自己生成的（含隐私）----------
+_数据/
+ui/存档.json
+ui/记忆_重要的事.json
+ui/语音缓存/
+ui/语音开关.txt
+ui/个性化/玻璃.txt
+ui/个性化/气泡.txt
+
+# 【重要】用户自己的 API 钥匙，绝不能进仓库
+ui/API.txt
+API.txt
+
+# ---------- 开发时的临时文件 ----------
+*.part
+*.log
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+.vscode/
+上传GitHub.txt
+*.zip
+
+# Release 包不打进仓库，走 gh release upload

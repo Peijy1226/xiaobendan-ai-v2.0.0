@@ -1,0 +1,216 @@
+/* ============================================================================
+   titlebar.css —— 自绘标题栏（58px，可拖动）
+   旧版顶栏结构（小笨蛋.py _buju_ding，11137 行起）：
+     左边：标题「小笨蛋」金色 #ffd166，字号 round(行高×1.4) 封顶 32px
+     右边从右往左：☰ 功能 → 🔊 语音 → 五颗心 → 状态字
+   ========================================================================== */
+
+#ding {
+  flex: 0 0 var(--ding-gao);
+  height: var(--ding-gao);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  position: relative;
+  z-index: 40;
+
+  /* 顶栏完全透明：视频壁纸在 #bi-jing 那一层铺满整窗，
+     顶栏自己不铺任何背景，只是"盖在视频上的一层压暗 + 模糊"。
+     这样天然和聊天区共用同一个视频源，播放时永远同步 ——
+     旧版要每帧把整窗图重新分配给四条横条，就是因为做不到这一点。 */
+  background: transparent;
+}
+
+/* 压暗层：旧版顶栏**不额外压暗**。
+   实测：旧版顶栏亮度 90.7 > 聊天区 85.6 —— 比聊天区还亮，
+   说明它就是把壁纸原样裁一条，一个字都没压。
+   第一版压 0.72，顶栏比聊天区暗 15 点，一眼就看出来不对。
+   这里只留一层极淡的暗（0.10）给金色标题兜底，不能更多。 */
+#ding::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg,
+      rgba(26, 32, 41, 0.12) 0%,
+      rgba(26, 32, 41, 0.06) 100%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* 旧版顶栏和聊天区之间没有分割线 —— 壁纸是连着的，靠内容区分。
+   第一版画了一根 1px 线，看着像两个窗口拼在一起，去掉。 */
+
+/* ---- 标题：金色，旧版 title_id 用 SE_JIN ---- */
+#biao-ti {
+  /* 让鼠标事件穿透到 #ding —— 拖窗口时点在标题上也算拖空白区 */
+  pointer-events: none;
+  font-size: var(--zt-ding);
+  font-weight: 700;
+  color: var(--se-jin);
+  letter-spacing: 0.5px;
+  line-height: 1;
+  /* 别让拖动区域把标题吃掉 */
+  pointer-events: none;
+}
+
+/* ---- 中间弹簧：把右侧控件推到右边 ---- */
+#ding-kong {
+  flex: 1 1 auto;
+  /* 同上：中间空白整段都能拖 */
+  pointer-events: none;
+}
+
+/* ---- 右侧整组 ---- */
+#ding-you {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- 状态字：表情 + 心情 + 好感度 + 轮数，金色，10 点 ---- */
+#zhuang-tai {
+  font-size: var(--zt-zhuangtai);
+  color: var(--se-jin);
+  white-space: nowrap;
+  opacity: 0.92;
+}
+
+/* ---- 五颗心 ----
+   旧版 WuXin：daxiao 13pt，横向间距 daxiao×1.45 = 18.85px，
+   宽度 = 18.85×5 + 6 = 100.25px，实心 #ff4d6d / 空心 #8d97a8。
+   跳动：一条正弦波从左到右扫，第 i 颗比前一颗晚 3 帧，26 帧一轮（≈1.04s）。
+   这里用 CSS animation-delay 复刻同一个波形。 */
+#xin-zu {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  /* 留出向上跳 4px 的空间，别被顶栏裁掉 */
+  padding-top: 2px;
+}
+
+#xin-zu i {
+  display: block;
+  width: 18.85px;
+  text-align: center;
+  font-size: 17px;
+  line-height: 24px;
+  font-style: normal;
+  font-weight: 700;
+  color: #8d97a8;                 /* 空心 */
+  transform: translateY(0);
+}
+
+#xin-zu i.man {
+  color: #ff4d6d;                 /* 实心 */
+}
+
+/* 跳动：26 帧 × 40ms = 1040ms 一轮；前 12 帧上升，正弦半个周期 */
+@keyframes xin-tiao {
+  0%   { transform: translateY(0); }
+  17%  { transform: translateY(-2.8px); }
+  23%  { transform: translateY(-4px); }
+  34%  { transform: translateY(-2.8px); }
+  46%  { transform: translateY(0); }
+  100% { transform: translateY(0); }
+}
+
+#xin-zu.tiao i {
+  animation: xin-tiao 1040ms linear infinite;
+}
+
+/* 第 i 颗晚 i×3 帧（120ms），和旧版 _tiao_zhen 的 JIAN=3 一致 */
+#xin-zu.tiao i:nth-child(1) { animation-delay: 0ms; }
+#xin-zu.tiao i:nth-child(2) { animation-delay: 120ms; }
+#xin-zu.tiao i:nth-child(3) { animation-delay: 240ms; }
+#xin-zu.tiao i:nth-child(4) { animation-delay: 360ms; }
+#xin-zu.tiao i:nth-child(5) { animation-delay: 480ms; }
+
+/* ---- 顶栏小按钮（☰ 功能 / 其他）：胶囊玻璃 ---- */
+.ding-niu {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 15px;
+  font-size: 13px;
+  color: var(--se-wen);
+  background: rgba(43, 55, 70, 0.55);
+  border: 1px solid rgba(61, 77, 97, 0.9);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 140ms ease, border-color 140ms ease;
+  white-space: nowrap;
+}
+
+.ding-niu:hover {
+  background: rgba(61, 77, 97, 0.75);
+  border-color: rgba(127, 196, 255, 0.55);
+}
+
+.ding-niu:active {
+  background: rgba(43, 55, 70, 0.9);
+}
+
+/* ---- 窗口按钮：最小化 / 关闭 ----
+   旧版没有这两个（用系统边框），产品版无边框必须自己画。 */
+#chuang-niu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.chuang-niu {
+  /* 32px 而不是 30：30 太小，实测点不准（顶栏 58 高，30 的方块上下各留 14，
+     鼠标稍偏就落到 #ding 上变成拖窗口）。 */
+  width: 32px;
+  height: 32px;
+  position: relative;
+  z-index: 2;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--se-dan);
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.chuang-niu svg {
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  fill: none;
+  stroke-linecap: round;
+}
+
+.chuang-niu:hover {
+  background: rgba(127, 196, 255, 0.14);
+  color: var(--se-wen);
+}
+
+.chuang-niu.guan:hover {
+  background: #c62828;
+  color: #fff;
+}
+
+/* ---- 语音按钮：开着的时候音量键要亮 ---- */
+.yin-niu {
+  padding: 0 9px;
+  font-size: 14px;
+  min-width: 34px;
+}
+
+.yin-niu.kai {
+  background: rgba(127, 196, 255, 0.20);
+  border-color: rgba(127, 196, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 0 10px rgba(127, 196, 255, 0.22);
+}
+
+.yin-niu:disabled {
+  opacity: 0.38;
+  cursor: default;
+}

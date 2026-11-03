@@ -1,0 +1,136 @@
+/* ============================================================================
+   base.css —— 变量与骨架
+   所有色值 / 尺寸只在这里定义一次，其它 css 一律引用变量。
+   数值来源：小笨蛋.py 第 5758-5779 行（配色）、7145-7150 行（气泡几何）
+   ========================================================================== */
+
+:root {
+  /* ---- 6.1 配色（SE_DI / SE_DING / ... 原样照搬）---- */
+  --se-di:    #1a2029;   /* 窗口底色 */
+  --se-ding:  #222b37;   /* 顶栏 */
+  --se-zhong: #151b23;   /* 对话区底色 */
+  --se-wen:   #eaf2fb;   /* 正文 */
+  --se-dan:   #93a4b8;   /* 次要文字 */
+  --se-jin:   #ffd166;   /* 强调金 */
+  --se-lan:   #7fc4ff;   /* 你说的话 */
+  --se-kuang: #2b3746;   /* 输入框 / 按钮底 */
+  --se-bian:  #3d4d61;   /* 边框 */
+
+  /* ---- 6.2 三套气泡（MAO_* / TOU_* 原样照搬）---- */
+  --mao-wo-di:   #e8a465;   /* 橘猫身子 */
+  --mao-wo-bian: #c8813f;
+  --mao-wo-wen:  #3a2410;
+  --mao-ta-di:   #dfe3e8;   /* 灰猫身子 */
+  --mao-ta-bian: #b6bec8;
+  --mao-ta-wen:  #243040;
+  --mao-tou-wen: #93a4b8;   /* 气泡上方那行小字 */
+  --tou-wo:      #f0c191;   /* 头像底色 */
+  --tou-ta:      #e4e8ee;
+
+  /* ---- 6.2 几何（ZUO / SHANG / ... 原样照搬）---- */
+  --zuo:        14px;   /* 画布左右留白 */
+  --shang:      12px;   /* 上留白 */
+  --duanju:      8px;   /* 两条消息空隙 */
+  --nb-x:       14px;   /* 气泡左右内边距 */
+  --nb-y:        9px;   /* 气泡上下内边距 */
+  --r-qipao:    14px;   /* 气泡圆角半径 */
+  --er:         11px;   /* 猫耳高度（占位用，实际耳朵高 14px，见 --pad-er）*/
+  --tou:      30.4px;   /* 头像直径 = 行高 20 × 1.52，夹在 [26,76] 之间 */
+  --tou-bi:   1.52;
+  --qipao-max: 520px;   /* 气泡最大宽度 */
+  --qipao-bi: 0.60;     /* 气泡最多占宽度的 60%（68% 时一行字太长，读着累） */
+  --pad:        10px;   /* 气泡底图四周留白（阴影 / 爪子）*/
+  --pad-er:     14px;   /* 猫耳那套上方额外留的高度 */
+
+  /* ---- 6.10 字号：Tk 11 点 = 行高 20px = CSS 15px ----
+     实测 Microsoft YaHei UI 11pt 的 linespace = 20px，
+     所以正文用 15px/20px 才和旧版一样大；写 11px 会小一圈。 */
+  --zt:        15px;
+  --hang:      20px;
+  --zt-pangbai: 13px;   /* max(9, 11-1) 点 */
+  --zt-xitong:  13px;
+  --zt-tou:     12px;   /* max(8, 11-2) 点，气泡上方小字 */
+  --zt-ding:    28px;   /* 顶栏标题 round(行高 × 1.4)，封顶 32 */
+  --zt-zhuangtai: 13px; /* 顶栏状态字 10 点 */
+
+  /* ---- 6.3 窗口与布局 ---- */
+  --ding-gao:   58px;   /* 顶栏高 */
+  --xia-gao:    68px;   /* 底部输入条高 */
+  --shuru-gao:  44px;
+  --shuru-r:    20px;   /* SHURU_BANJING */
+  --fa-kuan:    74px;
+  --fa-gao:     40px;
+
+  /* ---- 发光色（JING_SE_GUANG_JIN）---- */
+  --guang-jin:  #f6b94a;
+  --fa-wen:     #FFE7B0;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--se-di);
+  color: var(--se-wen);
+  /* 字体栈：Noto Sans SC 打头（系统自带、笔画匀、比微软雅黑圆），
+     后面跟着的回退全是不带衬线的 —— 绝不落到宋体（SimSun）。
+     【为什么不用鸿蒙 / MiSans / 思源】实测本机没装，
+     document.fonts.check() 对没装的字体也返回 true（它只判"能不能解析"，
+     不判"有没有这个字形"），差点被骗。看真实渲染像素才确认只有
+     Noto Sans SC / 等线 / 微软雅黑 三种。 */
+  font-family:
+    "Noto Sans SC",          /* 正文：现代、笔画匀、不呆板 */
+    "HarmonyOS Sans SC",     /* 万一以后装了就用这个 */
+    "MiSans",
+    "Source Han Sans SC",
+    "Segoe UI Variable Display",   /* 英文和数字：比 Segoe UI 新 */
+    "Segoe UI",
+    "DengXian",              /* 等线兜底 */
+    "Microsoft YaHei UI",
+    sans-serif;
+  /* 中文按字切行会更保险；关掉连字避免奇怪组合 */
+  font-variant-ligatures: none;
+  text-rendering: optimizeLegibility;
+  font-size: var(--zt);
+  line-height: var(--hang);
+  /* 无边框窗口里不要出现整页选中蓝块；输入框单独放开 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input, textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  font-family: inherit;
+  outline: none;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+button {
+  font-family: inherit;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* 窗口整体：竖着切三段，顶栏 / 聊天区 / 输入条
+   底色交给 #bi-jing 那张壁纸，这里保持透明 —— 旧版也是"一张整窗图
+   分给四条横条"，各条自己不铺底色，接缝才不出色差。 */
+#app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  position: relative;
+}

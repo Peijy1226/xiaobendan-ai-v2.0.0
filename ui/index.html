@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小笨蛋</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/titlebar.css">
+<link rel="stylesheet" href="css/chat.css">
+<link rel="stylesheet" href="css/input.css">
+<link rel="stylesheet" href="css/gongneng.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ==========================================================
+       壁纸层：视频壁纸（和旧版一样，用的是同一个 xiaobendan.mp4）
+       结构是 video + 首帧垫底图：
+         · 视频解码完成前先用首帧图占位，避免开局一片黑
+         · 视频就位后再淡出垫底图，看不到切换
+       这一层钉在视口最底下（fixed），顶栏 / 聊天区 / 输入条都透明，
+       所以三条天然共用同一个视频源 —— 比旧版"每帧把整窗图分给四条横条"
+       省事得多，而且永远不会错位。
+       ========================================================== -->
+  <div id="bi-jing">
+    <img id="bi-zhen" src="素材/壁纸/壁纸_首帧.jpg" alt="">
+    <video id="bi-shi" src="素材/壁纸/xiaobendan.mp4"
+           muted loop autoplay playsinline preload="auto"></video>
+  </div>
+
+  <!-- ================= 自绘标题栏 ================= -->
+  <header id="ding">
+    <div id="biao-ti">小笨蛋</div>
+    <div id="ding-kong"></div>
+
+    <div id="ding-you">
+      <!-- 五颗心：旧版 WuXin，好感度 1~5 颗 -->
+      <div id="xin-zu" title="好感度 55/100">
+        <i class="man">♥</i><i>♡</i><i>♡</i><i>♡</i><i>♡</i>
+      </div>
+
+      <!-- 状态字：表情 + 心情 + 好感度 + 轮数 -->
+      <span id="zhuang-tai">（-__-） 平静　好感度 55/100 · 第 0 轮</span>
+
+      <!-- 第一阶段加的：三套气泡切换（验收用，第二阶段收进「个性化」） -->
+      <div id="yang-shi">
+        <button data-yang="0" class="on">猫耳</button>
+        <button data-yang="1">圆角</button>
+        <button data-yang="2">透光</button>
+      </div>
+
+      <!-- 语音开关：旧版顶栏 🔊。点开她说话，再点关掉 -->
+      <button class="ding-niu yin-niu" id="niu-yin" title="让她说话">🔊</button>
+
+      <button class="ding-niu" id="niu-gong-neng" title="功能（☰）">☰ 功能</button>
+
+      <!-- 窗口按钮：无边框必须自己画 -->
+      <div id="chuang-niu">
+        <button class="chuang-niu" id="niu-xiao" title="最小化">
+          <svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg>
+        </button>
+        <button class="chuang-niu guan" id="niu-guan" title="关闭">
+          <svg viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= 聊天区 ================= -->
+  <main id="liao-tian"></main>
+
+  <!-- ================= 底部输入条 ================= -->
+  <footer id="xia">
+    <input id="shu-ru" type="text" placeholder="说点什么…" autocomplete="off" spellcheck="false">
+    <!-- 按住说话：不用打字。模型没下时点它会引导下载 -->
+    <button id="niu-mai" title="按住说话">🎤</button>
+    <button id="fa-song">发送</button>
+  </footer>
+
+  <!-- ================= 功能页（13 项浮层）================= -->
+  <div id="gong-neng">
+    <div id="gn-mian-ban">
+      <nav id="gn-cai-dan"></nav>
+      <section id="gn-nei">
+        <header id="gn-tou">
+          <span id="gn-biao">功能</span>
+          <span id="gn-fu"></span>
+          <button id="gn-guan" title="关闭（Esc）">✕</button>
+        </header>
+        <div id="gn-ye"></div>
+      </section>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/bridge.js"></script>
+<script src="js/bishu.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/gongneng.js"></script>
+<script src="js/yuyin.js"></script>
+<script src="js/yuyin_shuru.js"></script>
+<script src="js/input.js"></script>
+</body>
+</html>
