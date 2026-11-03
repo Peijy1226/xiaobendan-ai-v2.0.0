@@ -1,0 +1,305 @@
+/* ============================================================================
+   chat.css —— 聊天区与三套气泡
+
+   几何与配色全部来自小笨蛋.py 的 qipao_tu()（6897-7123 行）与
+   LiaoTianQu 类常量（7129-7143 行），一个值都没改：
+
+     猫耳：竖向渐变 + 顶部柔光 + 140 描边 + 圆钝耳朵 + 两只小爪子
+           橘猫 #e8a465 → 上提亮 14% = #ebb17b，下压暗 8% = #d5975d
+           灰猫 #dfe3e8 → 上 #e3e7eb，下 #cdd1d5
+     圆角：渐变 + 顶部高光 + 1px 自适应描边
+           橘 #e8a465 → 上 #eaaa70，下 #dc9c60
+           灰 #dfe3e8 → 上 #e1e5ea，下 #d4d8dc
+     透光：取身后壁纸模糊 8px → 亮度 ×1.04 → 饱和 ×1.12 → 掺 6% 白
+
+   为什么用子元素而不是伪元素：旧版耳朵画在身子**后面**，爪子也藏在
+   身子下沿。CSS 里要复刻这个遮挡关系，必须三层明确分层，伪元素只有
+   两个名额且负 z-index 容易漏到壁纸上。结构见 index.html。
+   ========================================================================== */
+
+/* ---------------- 聊天区容器 ---------------- */
+#liao-tian {
+  flex: 1 1 auto;
+  position: relative;
+  z-index: 10;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 【必须】contain:paint 把本区域裁成一个独立的绘制边界。
+     不加这条，滚动时 WebView2 会把"曾经在这里出现过"的图层（表情图）
+     重新画到区域外面 —— 表现为顶栏底下冒出一截人物立绘。 */
+  contain: paint;
+  /* 底色透明 —— 壁纸由 #bi-jing 统一铺，旧版也是"一张整窗图分给各条" */
+  background: transparent;
+  padding: var(--shang) var(--zuo) 8px;
+}
+
+/* 壁纸层：整窗视频（+ 首帧垫底图），钉在视口底下，顶栏/聊天区/输入条共用。
+   旧版是"每帧把整窗图分给四条横条"（_zao_quan_tu → _dong_tai_zhen），
+   新版一个 video 元素全员共享，天然同步、永不接缝。 */
+#bi-jing {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  /* 底色用窗口底色：视频还没解码出来时露出来的就是这个，
+     和旧版 LiaoTianQu 把 Canvas 底色设成 SE_DI 是同一个考虑。 */
+  background: var(--se-di);
+}
+
+/* 首帧垫底图：视频就绪前先顶上，就绪后由 JS 加 .ming 淡出 */
+#bi-zhen {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 1;
+  transition: opacity 420ms ease;
+}
+
+#bi-zhen.ming {
+  opacity: 0;
+}
+
+/* 视频本体：铺满窗口、裁边、循环静音自动播 */
+#bi-shi {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  /* 视频自带的边缘会被 object-fit 裁掉，加一点点缩放避免露出 1px 黑边 */
+  transform: scale(1.002);
+}
+
+/* 旧版对壁纸做了一道自适应压暗（BEIJING_AN=0.34，按亮度自适应）。
+   视频画面和静态图不一样，直接压 0.34 会偏暗，这里压 0.22 + 稍微降饱和，
+   让气泡和文字浮得起来，又不至于把画面压成灰糊。 */
+#bi-jing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 24, 32, 0.22);
+  pointer-events: none;
+}
+
+/* 滚动条：旧版第二轮按需求去掉了（XIAN_SHI_GUN = False）。
+   这里保留一根极淡的，只在鼠标进入时显形。 */
+#liao-tian::-webkit-scrollbar {
+  width: 10px;
+}
+
+#liao-tian::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#liao-tian::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 5px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+#liao-tian:hover::-webkit-scrollbar-thumb {
+  background: rgba(143, 165, 192, 0.5);       /* GUN_SE #8fa5c0 */
+  background-clip: content-box;
+}
+
+#liao-tian::-webkit-scrollbar-thumb:hover {
+  background: rgba(207, 224, 245, 0.78);      /* GUN_SE_LIANG #cfe0f5 */
+  background-clip: content-box;
+}
+
+/* ============================================================================
+   一条消息
+   旧版布局（_hua_mao，7963-8002 行）：
+     我：x2 = 宽 - ZUO - 头像直径 - 8；气泡在头像左边
+     她：x1 = ZUO + 头像直径 + 8；气泡在头像右边
+     头像顶边与气泡顶边齐平（顶对齐，7991 行注释）
+     她这一条上面多一行小字，占 ER + 8 = 19px
+   ========================================================================== */
+.xiao-xi {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: calc(var(--duanju) + 6.6px);   /* DUANJU + ER×0.6 */
+  position: relative;
+}
+
+.xiao-xi.wo {
+  flex-direction: row-reverse;
+}
+
+/* 她这一条上方有小字 + 猫耳朵，两块都要留位置。
+   旧版算法（_hua_mao 7984 行）：y += 小字行高(20) + ER(11) + 8 = 39
+   耳朵实际高 14（QIPAO_ER），比 ER 11 多 3px，会往上多探一点 ——
+   旧版就是这样，耳朵和文字之间留 5px 空隙。
+   第一版只写了 19px（漏算耳朵高度），耳朵直接压在小字上。 */
+.xiao-xi.ta.you-biao-ti {
+  padding-top: 39px;
+}
+
+/* ---- 气泡上方小字 ---- */
+.biao-ti {
+  position: absolute;
+  top: 0;
+  left: calc(var(--tou) + 10px);                /* ZUO + 头像直径 + 10，旧版 7979 行 */
+  font-size: var(--zt-tou);                     /* 12px = max(8, 11-2) */
+  line-height: 19px;
+  color: rgba(214, 226, 238, 0.86);             /* 比原来的 #93a4b8 亮一档 */
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+  /* 【为什么光靠 text-shadow 不够】视频壁纸每一帧都在变，
+     浅灰小字落到高光上（壁纸有 248 的最亮点）就彻底糊了。
+     text-shadow 只能给字描边，管不了字下面那块背景。
+     这里给文字垫一层很淡的暗底 —— 不是色块，是"局部压暗"，
+     尺寸跟着文字走，看起来像字自带的一点点氛围，不像贴了标签。 */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.82), 0 0 8px rgba(0, 0, 0, 0.62);
+  background: rgba(12, 18, 26, 0.34);
+  padding: 0 6px;
+  border-radius: 5px;
+  backdrop-filter: blur(10px) saturate(1.3);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  /* 上下各收 1px，让底块不要贴着气泡 */
+  margin-top: -1px;
+}
+
+/* ---- 头像 ---- */
+.tou-xiang {
+  flex: 0 0 auto;
+  width: var(--tou);
+  height: var(--tou);
+  border-radius: 50%;
+  position: relative;
+  align-self: flex-start;
+  overflow: hidden;
+  /* 深色壁纸 + 深色头发 = 头像化进背景。一圈极细的亮边把它"托"出来，
+     顺便给一丁点内阴影当体积。 */
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 2px 6px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+
+.tou-xiang img {
+  width: 100%;
+  height: 100%;
+  /* 【为什么是 cover 就够，不能再 scale】
+     原来这里写了 transform: scale(1.26) translateY(2%) ——
+     本意是"全身照也能裁到脸"，但副作用是**所有**头像都被放大 26%，
+     用户按 1:1 传的好图被裁掉四周，看起来"比例不对"。
+     而且 tou_cun() 存盘前已经居中裁成 1:1 了，这里再放大多余。
+     现在原样铺满：传什么显示什么，比例就是传进来的比例。 */
+  object-fit: cover;
+  object-position: center;
+  border-radius: 50%;
+  display: block;
+}
+
+/* 默认猫脸（旧版 _mao_touxiang 7850-7868 行的几何）：
+   圆 #e4e8ee 底 + 描边 #b6bec8；
+   两只耳朵 = 三角(dx 0.15r→0.70r, dy -0.55r→-1.05r)；
+   两只眼睛 = 4×4 圆点，水平 ±0.30r；嘴 = 一段下弯的弧。 */
+.mao-lian {
+  position: absolute;
+  inset: 0;
+}
+
+.mao-lian .lian {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--tou-ta);
+  border: 1px solid var(--mao-ta-bian);
+}
+
+.mao-lian .er {
+  position: absolute;
+  width: 30%;
+  height: 26%;
+  background: var(--tou-ta);
+  border: 1px solid var(--mao-ta-bian);
+  border-radius: 50% 50% 0 0;
+  top: -8%;
+}
+
+.mao-lian .er.zuo { left: 12%; transform: rotate(-22deg); }
+.mao-lian .er.you { right: 12%; transform: rotate(22deg); }
+
+.mao-lian .yan {
+  position: absolute;
+  width: 12%;
+  height: 12%;
+  border-radius: 50%;
+  background: #3a3a3a;
+  top: 46%;
+}
+
+.mao-lian .yan.zuo { left: 28%; }
+.mao-lian .yan.you { right: 28%; }
+
+.mao-lian .zui {
+  position: absolute;
+  left: 50%;
+  top: 60%;
+  width: 34%;
+  height: 16%;
+  margin-left: -17%;
+  border: 1.6px solid #3a3a3a;
+  border-top-color: transparent;
+  border-left-color: transparent;
+  border-right-color: transparent;
+  border-radius: 0 0 70% 70%;
+}
+
+/* 我这一侧：橘色猫脸 */
+.xiao-xi.wo .mao-lian .lian {
+  background: var(--tou-wo);                    /* #f0c191 */
+  border-color: var(--mao-wo-bian);             /* #c8813f */
+}
+
+.xiao-xi.wo .mao-lian .er {
+  background: var(--tou-wo);
+  border-color: var(--mao-wo-bian);
+}
+
+/* ============================================================================
+   气泡本体
+   ========================================================================== */
+.qi-pao {
+  position: relative;
+  z-index: 0;                                   /* 自建层叠上下文，耳朵跑不出去 */
+  max-width: min(var(--qipao-max), 68%);
+  /* 上下内边距都是 11（旧版 NEIBIAN_Y 9 + 文字起始偏移 2），
+     单行气泡总高 = 11 + 20 + 11 = 42，和旧版 qipao_h 公式
+     （行数×行高 + 9×2 + 4）算出来的一致。第一版写成 9+11=40，矮了 2px。 */
+  padding: calc(var(--nb-y) + 2px) var(--nb-x);
+  font-size: var(--zt);
+  line-height: var(--hang);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* 三层：0 = 耳朵/爪子（身子后面） 1 = 身子 2 = 文字 */
+.qp-shen {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-qipao);
+  z-index: 1;
+}
+
+.qp-wen {
+  position: relative;
+  z-index: 2;
+}
+
+.qp-er,
+.qp-zhua {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+}
