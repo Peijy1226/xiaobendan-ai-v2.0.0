@@ -621,3 +621,627 @@ BQ_CHANGJING_CI = (
     ("ask",      ("为什么", "怎么会", "什么意思", "不懂", "啥意思")),
     ("hi",       ("你好", "在吗", "在不在", "早上好", "早呀", "我回来了", "好久不见")),
 )
+
+# 认不出场合时，允许"随手撒一张"的通用款（不带明确场景含义的才放这儿）
+BQ_TONG_YONG = ("害羞", "偷笑", "比心", "得意", "发呆", "惊讶", "兴奋")
+
+# 恋人之间才用的黏糊词（好感没满时说了也只是普通关心，不切"love"场景）
+BQ_LIANREN_CI = ("想你", "抱抱", "抱一下", "亲", "喜欢你", "别走", "一起睡",
+                 "陪我", "在不在我身边")
+
+
+def bq_changjing(wenti, lianren=False):
+    """从用户那句话里认"现在是什么场合"，认不出返回空串
+
+    只认得出十来种常见场合，认不出就交给情绪那套 ——
+    宁可退回"按脸色挑"，也别硬猜，猜错了比没有更糟。
+    """
+    s = str(wenti or "").strip()
+    if not s:
+        return ""
+    if lianren and any(k in s for k in BQ_LIANREN_CI):
+        return "love"
+    for ming, ci in BQ_CHANGJING_CI:
+        if any(k in s for k in ci):
+            return ming
+    return ""
+
+
+def _bq_an_ming(lie, mingzi):
+    """按文件名主干筛：写"关心"能同时拿到 关心.png / 关心_2.png"""
+    out = []
+    for p in lie:
+        b = os.path.basename(p)
+        b = b.rsplit(".", 1)[0]
+        for m in mingzi:
+            if b == m or b.startswith(m + "_"):
+                out.append(p)
+                break
+    return out
+
+
+def _bq_tiao(houxuan):
+    """从候选里挑一张，避开最近用过的（避不开就放开）
+
+    为什么需要：抽签是独立的，连着两句抽到同一张完全可能 —— 用户会觉得
+    "就这一张图？"。记住最近 5 张，先在候选里排除它们再抽。
+    候选本身就少（比如"平静"只有 3 张）时，排除完可能一张不剩 ——
+    那就挑"最久没用过"的那张，而不是纯随机（纯随机可能上一张刚用过又抽到它）。
+    """
+    if not houxuan:
+        return None
+    sheng = [p for p in houxuan if p not in _BQ_ZUIJIN]
+    if sheng:
+        p = random.choice(sheng)
+    else:
+        def _jiu(x):
+            try:
+                return _BQ_ZUIJIN[::-1].index(x)   # 数字越大 = 越久没出现
+            except ValueError:
+                return 99
+        p = max(houxuan, key=_jiu)
+    _BQ_ZUIJIN.append(p)
+    if len(_BQ_ZUIJIN) > BQ_BU_CHONGFU:
+        del _BQ_ZUIJIN[:-BQ_BU_CHONGFU]
+    return p
+
+
+def bq_xuan(qingxu, lianren=False, lingguang=False, changjing=""):
+    """挑一张表情：先看场合，再看脸色
+
+    顺序（重要）：
+      ① 场合（changjing）对得上就先按场合挑 —— 说"晚安"就该是拜拜/晚安，
+         不能因为当下心情是"开心"就贴一张大笑；
+      ② 认不出场合，退回按情绪挑；同一个情绪有多张（开心 / 开心_2）时轮流用；
+      ③ 都没有就整池随机，绝不返回空。
+
+    池子按模式分：灵光开着先用 表情/灵光，空了退回离线；灵光关着只用离线。
+    """
+    bq_zhunbei()
+    mu = BQ_LIXIAN
+    if lingguang:
+        if bq_lie(BQ_LINGGUANG):
+            mu = BQ_LINGGUANG
+    lie = bq_lie(mu)
+    if not lie:
+        return None
+
+    # ① 场合优先
+    if changjing:
+        ming = BQ_CHANGJING.get(changjing)
+        if ming:
+            an_chang = _bq_an_ming(lie, ming)
+            if an_chang:
+                return _bq_tiao(an_chang)
+
+    # ② 按情绪
+    yao = "恋人" if lianren else (qingxu or "平静")
+    zhong = [p for p in lie if yao in os.path.basename(p)]
+    if not zhong and yao == "恋人":
+        zhong = [p for p in lie if "害羞" in os.path.basename(p)]
+    # 灵光池里没有这个情绪 → 回退到离线池找同情绪的，
+    # 总比"该委屈的时候抽到一张大笑的流行图"强
+    if not zhong and mu != BQ_LIXIAN:
+        zhong = [p for p in bq_lie(BQ_LIXIAN) if yao in os.path.basename(p)]
+    # 委屈/困惑 不参与随机：这两种情绪下抽到一张"比心"会很不合时宜
+    # 随机也只从"通用款"里挑 —— 拜拜/晚安/生气/大哭/恋人 这些带了明确场景，
+    # 平时蹦出来只会莫名其妙
+    if zhong and not lianren and yao not in ("委屈", "困惑") \
+            and random.random() < BQ_SUIJI:
+        ping = [p for p in lie
+                if any(os.path.basename(p).startswith(k) for k in BQ_TONG_YONG)]
+        return _bq_tiao(ping or zhong)
+    return _bq_tiao(zhong or lie)
+
+# 素材分两拨：
+#   表格类素材（笑话、天气、美食、王者）是给各个工具查的“数据库”，
+#     它们要么是「问：…答：…」，要么是「A|B|C」竖线表，学进聊天模型只会把天聊成表格；
+#   其余素材，才是给大模型学的聊天语料。
+# 第 2 步只排除了笑话；第 3 步把另外三张表也排除掉，
+# 否则闲聊会蹦出“射手推荐”“18~26℃”这种断句（第 2 步实测确实会）。
+GONGJU_SUCAI = ("笑话", "天气", "美食", "王者")
+LIAOTIAN_SUCAI = [n for n in quanbu if not any(c in n for c in GONGJU_SUCAI)]
+
+# 【第 3 步改动】聊天语料只认“一份主素材”，不再把几份风格不同的素材混在一起学着说。
+# 为什么？这个模型是“看上文猜下一个字”，几份素材拼在一起，它就会把校园对话、
+# 科幻小说、科普文章的口吻缝在一句里（实测会蹦出“陈屿和爸爸听说番茄炖牛腩不难”这种）。
+# 优先级：文件名带“日常”的 > 带“对话”的 > 其余排第一份。
+# 想换“腔调”，把新的素材命名成 素材X_日常对话.txt 就行，代码不用动。
+def _xuan_zhu_sucai(biao):
+    """按优先级挑一份主素材。先排除“校园”题材，日常/生活题材优先。"""
+    # 第一优先：带“日常”又不带“校园”的（就是 素材八_日常对话.txt）
+    for tiaojian in (lambda n: "日常" in n and "校园" not in n,
+                     lambda n: "生活" in n,
+                     lambda n: "对话" in n and "校园" not in n,
+                     lambda n: "日常" in n,
+                     lambda n: "对话" in n):
+        mingzhong = [n for n in biao if tiaojian(n)]
+        if mingzhong:
+            return mingzhong[:1]
+    return biao[:1]
+
+
+wenjian = _xuan_zhu_sucai(LIAOTIAN_SUCAI) if LIAOTIAN_SUCAI else []
+
+# 【新增·健壮性】第 1 步在这里直接 raise SystemExit，双击运行会黑屏闪退。
+# 现在改成：没素材也能启动，只是大模型没读过书，报时和算数照样能用。
+if not wenjian:
+    print("【提示】没找到聊天用的 素材*.txt，大模型暂时没读过书。")
+    print("        把素材文件放到这里就能聊天了：%s" % SUCAI_MU)
+    print("        现在能用的功能：报时、算数、讲笑话。")
+    print()
+
+# 素材里偶尔有“写法说明”这种给人看的行（例如“不含本行标题和本行说明”），
+# 学进模型会变成鬼话，所以读的时候就把它剔掉。
+SHUOMING_CI = ("本行标题", "不含本行", "用途：", "写法说明", "以下为", "请勿修改")
+
+
+def _shi_shuoming(hang):
+    """判断这一行是不是“给人看的说明”，而不是语料正文"""
+    return any(ci in hang for ci in SHUOMING_CI)
+
+
+duanluo = []
+for name in wenjian:
+    with open(su_cai_lu(name), encoding="utf-8") as f:
+        zhengwen = "\n".join(h for h in f.read().splitlines() if not _shi_shuoming(h))
+    duanluo.append(zhengwen)
+TEXT = "".join(duanluo).replace("\r", "").replace("\n", "").replace(" ", "")
+
+# 【第 3 步新增】把素材再拆成“一句一句”，存成句子库。
+# 为什么需要它？因为二字模型只会接字，回答不了“人工智能是什么”。
+# 但素材里其实**写着**答案，只是需要按关键词把它捞出来 —— 这就是检索式回答。
+#
+# 【本轮改·检索池】句子库不再只收“主素材一份”（44 句），改成收全部聊天素材
+#   + 程序旁边的「语料」目录。
+#   为什么以前只收一份：怕几份素材混了腔调。但“学腔调”和“查资料”是两件事 ——
+#   学腔调仍然只用一份（见上面 _xuan_zhu_sucai，TEXT/model 一行没动），
+#   检索池越大越答得上话，两者不冲突。
+#   为什么加一百份素材也不会抢关键词：这些句子只进检索池，不进话题表 HUATI_KU ——
+#   没被检索到就一辈子不开口，不存在“关键词互相抢”。
+YU_LIAO_MU = os.path.join(DIR, "语料")          # 用户自建：一行一句，放多少都行
+
+# 素材里混着“给人看的说明”和对话体的说话人前缀，命中它们会答出鬼话，先洗一遍。
+_SHOU_CI = re.compile(r"^[^\s：:]{1,5}[：:]\s*")  # 「小林：」「问：」这类说话人前缀
+_XI_GAN_CI = ("min_lm", "generate", "本行标题", "不含本行", "用途：", "换进去",
+              "重点观察", "语料约", "写法说明", "以下为", "请勿修改")
+
+
+def _xi_gan_juzi(hang):
+    """把一行素材洗成可以拿去回答的句子；洗不出来返回空串。
+
+    要处理的三种脏东西：
+      ① 说明行（讲怎么用这份素材的）—— 命中会答出“把 generate 的 start 改成…”
+      ② 对话体的说话人前缀（小林：）—— 原样念出来像在念剧本
+      ③ 素材三那种 Python 字符串壳（"..." ,）—— 引号会被一起念出来
+    """
+    s = (hang or "").strip()
+    if not s or any(ci in s for ci in _XI_GAN_CI):
+        return ""
+    s = s.rstrip(",").rstrip("，").strip()
+    s = s.strip("\"“”'‘’")
+    s = _SHOU_CI.sub("", s).strip()
+    s = s.strip("\"“”'‘’")
+    # 以转折/因果词开头的句子，多半是上一句被切走后的尾巴。
+    # 念出来就是「但是大模型也有明显的缺点」这种半截话，宁可不要这一句。
+    if s.startswith(("但是", "但", "所以", "因为", "而且", "并且", "不过",
+                     "然而", "因此", "于是", "同时", "另外", "也就是")):
+        return ""
+    return s
+
+
+def _juzi_quan(name):
+    """每句配一个可信度权重。
+
+    日常/科普最可信（真能回答“是什么”），校园次之，叙事小说最次
+    （它答不了知识题，但能接住“后来呢”这类话头，所以留着不删）。
+    「语料」目录是用户自己筛过的，权重最高。
+    """
+    if name.startswith("语料/"):
+        return 1.20
+    if "日常" in name:
+        return 1.15
+    if "人工智能" in name or "科普" in name:
+        return 1.10
+    if "校园" in name:
+        return 1.00
+    if "叙事" in name or "小说" in name:
+        return 0.85
+    return 1.00
+
+
+JUZI = []            # 检索池：一句一条
+JUZI_QUAN = []       # 与 JUZI 一一对应的出处权重
+JUZI_LAI = []        # 出处文件名，自检/调试用
+
+
+def _pin_hang(wenben):
+    """把“排版换行”接回去，只保留“真正的句子边界”。
+
+    为什么需要：素材三是把一个长段拆成好几行带引号的字符串，按行切开就会得到
+    「超大规模神经网络，它把学到的知识压缩在参数里」这种从半截开始的话 ——
+    检索出来念给用户听，一眼就能看出是断句错误。
+    规则：上一行没有句末标点，就认为它是被排版切断的，直接接上；否则另起一句。
+    """
+    jie = ""
+    for hang in (wenben or "").splitlines():
+        hang = hang.strip().strip("\"“”'‘’").strip()   # 先摘掉行首行尾的引号
+        if not hang or hang.startswith("#"):
+            continue
+        if jie and jie[-1] not in "。！？；…":
+            jie += hang
+        else:
+            jie += "\n" + hang
+    return jie
+
+
+def _shou_juzi(wenben, lai):
+    quan = _juzi_quan(lai)
+    for _j in re.split(r"[。！？；\n]+", _pin_hang(wenben)):
+        _j = _xi_gan_juzi(_j)
+        if len(_j) >= 10:
+            JUZI.append(_j)
+            JUZI_QUAN.append(quan)
+            JUZI_LAI.append(lai)
+
+
+for _name in LIAOTIAN_SUCAI:            # 四份聊天素材全收（原来是只收一份）
+    try:
+        with open(su_cai_lu(_name), encoding="utf-8") as _f:
+            _shou_juzi(_f.read(), _name)
+    except Exception:
+        pass
+
+if os.path.isdir(YU_LIAO_MU):           # 用户自建语料：一行一句
+    for _name in sorted(os.listdir(YU_LIAO_MU)):
+        if not _name.lower().endswith(".txt"):
+            continue
+        try:
+            with open(os.path.join(YU_LIAO_MU, _name), encoding="utf-8") as _f:
+                for _hang in _f:
+                    _hang = _hang.strip()
+                    if not _hang or _hang.startswith("#"):
+                        continue
+                    _j = _xi_gan_juzi(_hang)
+                    if len(_j) >= 6:        # 自建语料允许短句（“我一般十一点睡”）
+                        JUZI.append(_j)
+                        JUZI_QUAN.append(_juzi_quan("语料/" + _name))
+                        JUZI_LAI.append("语料/" + _name)
+        except Exception:
+            pass
+
+# ---------- 倒排索引：二元组 → [(句子编号, 这个词在这句里出现几次)] ----------
+# 为什么要索引：以前每问一句都要把整个句子库从头扫一遍（每个候选句数一遍命中几个
+# 二字片段）。句子一多就慢，而且句子到几百条以后“覆盖率 ≥ 0.5”这种粗糙打分
+# 会把无关短句也捞上来。索引 + BM25 是这件事的标准做法，纯标准库就能写。
+TING_YONG = set("的了是我你他她它们这那就在有和也都很不个上下来去说会要可对就又才把被给让呢吗啊吧呀哦嗯么什怎么这个那个")
+
+
+def _er_yuan(s):
+    """只留汉字，切成二字片段；不足两字就整句当一个片段"""
+    s = "".join(ch for ch in s if "\u4e00" <= ch <= "\u9fa5")
+    if len(s) < 2:
+        return [s] if s else []
+    return [s[i:i + 2] for i in range(len(s) - 1)]
+
+
+DAOPAI = defaultdict(list)      # 二元组 → [(句号, 词频)]
+CHANG_DU = []                   # 每句的片段数（BM25 的长度归一要用）
+
+for _i, _j in enumerate(JUZI):
+    _tf = Counter(_er_yuan(_j))
+    for _t, _c in _tf.items():
+        DAOPAI[_t].append((_i, _c))
+    CHANG_DU.append(sum(_tf.values()) or 1)
+
+PINGJUN_CHANG = (sum(CHANG_DU) / len(CHANG_DU)) if CHANG_DU else 1.0
+
+N = 2                                           # 上文长度：看前 2 个字
+model = defaultdict(Counter)                    # 计票本：{上文: Counter(下一个字: 票数)}
+
+for i in range(len(TEXT) - N):
+    context = TEXT[i:i + N]
+    next_char = TEXT[i + N]
+    model[context][next_char] += 1
+
+
+def generate(start="大模型", length=60, temperature=1.0):
+    """从 start 开始，一个字一个字地往外写，写满 length 个字为止"""
+    out = start
+    for _ in range(length):
+        qianwen = out[-N:]                      # 取刚写出的最后 2 个字当上文
+        if qianwen not in model:
+            qianwen = out[-1]                   # 2 字上文没见过，退而求其次看 1 个字
+            if qianwen not in model:
+                break                           # 连 1 个字都不认识，只好停笔
+        candidates = model[qianwen]
+        chars = list(candidates.keys())
+        piaoshu = [c ** (1.0 / temperature) for c in candidates.values()]
+        out += random.choices(chars, weights=piaoshu)[0]
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 第二部分【新增】工具 1：查看时间
+# 思路：先用关键词判断“这句话是不是在问时间”，再从 datetime 取当前系统时间
+# ══════════════════════════════════════════════════════════════════════════════
+
+# 只要句子里出现下面任何一个词，就认定这是“时间类问题”
+SHIJIAN_CI = (
+    "几点", "时间", "时刻", "钟点", "报时",
+    "日期", "几号", "多少号",
+    "星期几", "周几", "礼拜几", "星期",
+    "今年", "哪年",
+    "now", "time", "date", "today",
+)
+
+XINGQI = ("一", "二", "三", "四", "五", "六", "日")   # 星期一 ~ 星期日
+
+
+def is_time_question(text):
+    """判断一句话是不是在问时间：命中任一关键词就算
+
+    【本轮修正】「时间」这两个字也是人生话题里的常用词（「时间过得真快」「时间会冲淡一切」），
+    原来一律被报时抢走，回一句「现在是 16:07:40」，答非所问。
+    现在加一道闸：句子里带这些**聊时间**的说法，就不当报时处理，让给话题层。
+    """
+    low = text.lower()
+    # 先排除「在聊时间」而不是「在问几点」的说法
+    if any(ci in text for ci in LIAO_SHIJIAN_CI) and not any(
+            ci in text for ci in ("几点", "报时", "现在时间", "当前时间")):
+        return False
+    # 【本轮补充】「时间是什么」「时间会倒流吗」也是在聊时间这个概念，
+    # 不是问几点。要求句子里出现明确的**求时间点**说法，才算报时。
+    # 这样「现在几点」「今天几号」「星期几」照旧报时，概念提问让给话题层。
+    QIU_SHIJIAN_DIAN = ("几点", "几号", "多少号", "星期几", "周几", "礼拜几",
+                        "报时", "现在时间", "当前时间", "今天日期", "今年是哪年",
+                        "什么时间了", "现在是什么时候", "几点了")
+    if not any(ci in low for ci in QIU_SHIJIAN_DIAN):
+        return False
+    # 【本轮补】「食堂几点开」「宿舍几点关门」「作业几号交」里的「几点/几号」
+    # 问的是**那件事的时间**，不是现在几点。原来一律报时，答成「现在是 15:02」。
+    # 句子里点了具体的事，就交回具体信息层。
+    _JUTI_SHI = ("食堂", "宿舍", "教室", "图书馆", "操场", "超市", "校门", "教学楼",
+                 "课", "作业", "考试", "放假", "开学", "假期", "自习", "老师", "班",
+                 "快递", "医务室", "食堂饭", "校车")
+    if any(ci in text for ci in _JUTI_SHI) and not any(
+            ci in text for ci in ("现在", "当前", "报时", "几点了", "现在时间")):
+        return False
+    # 【本轮补】「咖啡几点后不能喝」「几点睡最好」问的是“那个时间点该干什么”，
+    # 不是“现在几点”。这类带时间短语的说法一律不当报时。
+    if any(ci in text for ci in _FEI_BAOSHI_CI):
+        return False
+    return any(ci in low for ci in SHIJIAN_CI)
+
+
+# 「几点 + 这件事」= 问时间点该怎么安排，不是问现在几点
+_FEI_BAOSHI_CI = ("几点后", "几点前", "几点睡", "几点起", "几点上班", "几点下班",
+                  "几点上课", "几点下课", "几点吃", "几点开始", "几点结束",
+                  "几点到", "几点走", "几点关", "几点合适", "几点比较好",
+                  "几点最好", "几点好", "学到几点", "练到几点")
+
+
+# 出现这些词，说明是在感叹/议论时间，不是要报时
+LIAO_SHIJIAN_CI = ("过得真快", "过得好快", "时间真", "时间会", "时间能",
+                   "时间不", "珍惜时间", "浪费时间", "时间就是", "没时间",
+                   "一段时间", "段时间", "这段时间", "那段时间")
+
+
+def look_time(text=""):
+    """回答时间类问题。问什么就答什么，问得不具体就全报一遍。"""
+    now = datetime.datetime.now()
+    xingqi = "星期" + XINGQI[now.weekday()]
+    riqi = "%d 年 %d 月 %d 日" % (now.year, now.month, now.day)
+    shike = "%02d:%02d:%02d" % (now.hour, now.minute, now.second)
+    # %02d 的意思是：按整数打印，不够 2 位就在前面补 0 —— 9 点会显示成 09
+
+    if any(k in text for k in ("星期几", "周几", "礼拜几")):
+        return "今天是%s。" % xingqi
+    if any(k in text for k in ("日期", "几号", "多少号")):
+        return "今天是 %s，%s。" % (riqi, xingqi)
+    if any(k in text for k in ("几点", "时间", "时刻", "钟点", "报时")):
+        return "现在是 %s（%s，%s）。" % (shike, riqi, xingqi)
+    return "现在是 %s，%s %s。" % (riqi, shike, xingqi)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 第三部分【新增】工具 2：会算数
+# 思路分两步：
+#   ① 从一句中文里“抠”出算式：全角转半角、×÷^ 换成 * / **、中文运算符换符号
+#   ② 用 ast 解析这棵语法树，只放行加减乘除和少数数学函数，逐个节点手算
+#      —— 千万不能直接 eval()，那是把用户输入当代码执行，有安全风险
+# ══════════════════════════════════════════════════════════════════════════════
+
+# 中文数字 → 阿拉伯数字
+ZH_DIGIT = {"零": 0, "〇": 0, "一": 1, "壹": 1, "二": 2, "两": 2, "贰": 2,
+            "三": 3, "叁": 3, "四": 4, "肆": 4, "五": 5, "伍": 5, "六": 6,
+            "陆": 6, "七": 7, "柒": 7, "八": 8, "捌": 8, "九": 9, "玖": 9}
+# 中文数位 → 权重
+ZH_UNIT = {"十": 10, "拾": 10, "百": 100, "佰": 100, "千": 1000, "仟": 1000}
+# 能组成中文数字的全部字符（拼成正则字符类用）
+ZH_CHARS = "".join(ZH_DIGIT) + "".join(ZH_UNIT)
+
+# 中文运算符 → 符号。注意顺序：长的词先替换，否则“除以”会被“除”抢先拆开
+ZH_OP = (("乘以", "*"), ("乘", "*"), ("除以", "/"), ("除", "/"),
+         ("加上", "+"), ("加", "+"), ("减去", "-"), ("减", "-"))
+
+# ast 节点 → 真正的运算（白名单：只认这几种，别的节点一律拒绝）
+YUNSUAN = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+# 允许调用的数学函数（同样是白名单，写别的一律拒绝）
+HANSHU = {
+    "abs": abs, "round": round, "sqrt": math.sqrt, "pow": math.pow,
+    "log": math.log, "log10": math.log10, "log2": math.log2, "exp": math.exp,
+    "sin": math.sin, "cos": math.cos, "tan": math.tan,
+    "floor": math.floor, "ceil": math.ceil, "factorial": math.factorial,
+    "degrees": math.degrees, "radians": math.radians,
+}
+
+# 允许出现的常数名
+CHANGLIANG = {"pi": math.pi, "e": math.e, "π": math.pi}
+
+
+def zh_to_num(s):
+    """把一段中文数字翻译成整数，如“一百二十三”→123、“十五”→15、“一二三”→123。
+    遇到“万”“亿”这种没实现的单位返回 None，让调用方跳过，绝不瞎猜。"""
+    if not s or "万" in s or "亿" in s:
+        return None
+    if all(ch in ZH_DIGIT for ch in s):          # 纯数字串：一二三 → 123
+        return int("".join(str(ZH_DIGIT[ch]) for ch in s))
+    result, num = 0, 0
+    for ch in s:
+        if ch in ZH_DIGIT:
+            num = ZH_DIGIT[ch]
+        elif ch in ZH_UNIT:
+            u = ZH_UNIT[ch]
+            if num == 0:                         # “十五”里的“十”前面省略了 1
+                num = 1
+            result += num * u
+            num = 0
+    return result + num
+
+
+def guifanhua(text):
+    """规范化前半段：全角符号转半角、×÷^ 换成 * / **、中文运算符换成符号。
+    （中文数字留到“片段”里再换，这样“算一下”的“一”不会被误当成数字 1）"""
+    # 全角转半角：全角字符的编码比半角大 0xFEE0，直接减掉即可
+    text = "".join(chr(ord(ch) - 0xFEE0) if 0xFF01 <= ord(ch) <= 0xFF5E else ch
+                   for ch in text)
+    text = text.replace("×", "*").replace("✖", "*").replace("＊", "*")
+    text = text.replace("÷", "/").replace("／", "/")
+    text = text.replace("^", "**")               # 乘方：^ 换成 **
+    for ci, fuhao in ZH_OP:                      # 中文运算符 → 符号（先长后短）
+        text = text.replace(ci, fuhao)
+    text = re.sub(r"(\d+)\s*的\s*(\d+)\s*次方", r"\1**\2", text)   # 2的10次方 → 2**10
+    # 【本轮补】平方/立方/开根：原来「3的平方是多少」完全认不出，掉到陈述句兜底
+    # 回一句「嗯，我在听」。这是有确定答案的问题，必须算出来。
+    text = re.sub(r"(\d+(?:\.\d+)?)\s*的?\s*平方", r"\1**2", text)   # 3的平方 → 3**2
+    text = re.sub(r"(\d+(?:\.\d+)?)\s*的?\s*立方", r"\1**3", text)   # 3的立方 → 3**3
+    text = re.sub(r"(?:根号|开根号?|开平方)\s*(\d+(?:\.\d+)?)", r"sqrt(\1)", text)
+    text = re.sub(r"(\d+(?:\.\d+)?)\s*的?\s*开根号?", r"sqrt(\1)", text)
+    text = re.sub(r"(\d+)\s*!", r"factorial(\1)", text)            # 5! → factorial(5)
+    return text
+
+
+# 候选片段：由“数字/字母/运算符/括号/空格/中文数字”连成的一段
+PIAN = re.compile(r"[0-9A-Za-zπ.+\-*/%()\s" + ZH_CHARS + r"]+")
+
+
+def _zh_huan_pian(pian):
+    """只在这一小段里把中文数字换成阿拉伯数字（“一百二十三*四”→“123*4”）"""
+    def _huan(m):
+        n = zh_to_num(m.group())
+        return str(n) if n is not None else m.group()
+    return re.sub("[" + ZH_CHARS + "]+", _huan, pian)
+
+
+def anquan_qiusuan(biaodashi):
+    """用 ast 安全地计算一个表达式，只放行白名单里的运算符和函数。
+    返回 (成功与否, 结果或错误说明)。"""
+    if len(biaodashi) > 200:                     # 先挡住超长式子，防止卡死
+        return False, "式子太长了"
+    try:
+        tree = ast.parse(biaodashi, mode="eval")
+    except SyntaxError:
+        return False, "这个式子我看不懂"
+    if sum(1 for _ in ast.walk(tree)) > 120:     # 节点数上限，防止巨型式子
+        return False, "式子太复杂了"
+
+    def _suan(node):
+        # ── 数字：直接返回 ────────────────────────────────────────
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+                return node.value
+            raise ValueError("只支持数字")
+        # ── 二元运算：先算左右，再套用白名单里的运算 ───────────────
+        if isinstance(node, ast.BinOp):
+            op = YUNSUAN.get(type(node.op))
+            if op is None:
+                raise ValueError("不支持的运算符")
+            zuo, you = _suan(node.left), _suan(node.right)
+            if isinstance(node.op, ast.Pow) and abs(you) > 1000:
+                raise ValueError("指数太大了，算不动")
+            if isinstance(node.op, ast.LShift | ast.RShift):
+                raise ValueError("不支持的运算符")
+            return op(zuo, you)
+        # ── 一元运算：正负号 ─────────────────────────────────────
+        if isinstance(node, ast.UnaryOp):
+            op = YUNSUAN.get(type(node.op))
+            if op is None:
+                raise ValueError("不支持的正负号")
+            return op(_suan(node.operand))
+        # ── 函数调用：名字必须在白名单里 ─────────────────────────
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in HANSHU:
+                raise ValueError("函数 %s 不在允许清单里" % getattr(node.func, "id", "?"))
+            if getattr(node, "keywords", None):
+                raise ValueError("不支持写参数名")
+            args = [_suan(a) for a in node.args]
+            if node.func.id == "factorial":
+                if args and (args[0] < 0 or args[0] > 170):
+                    raise ValueError("阶乘只算 0~170 的数")
+                if args and args[0] != int(args[0]):
+                    raise ValueError("阶乘只算整数")
+            return HANSHU[node.func.id](*args)
+        # ── 常数：pi、e ──────────────────────────────────────────
+        if isinstance(node, ast.Name):
+            if node.id in CHANGLIANG:
+                return CHANGLIANG[node.id]
+            raise ValueError("不认识 %s" % node.id)
+        raise ValueError("不支持的写法")
+
+    try:
+        return True, _suan(tree.body)
+    except ZeroDivisionError:
+        return False, "除数不能是 0 哦"
+    except ValueError as e:
+        return False, str(e)
+    except OverflowError:
+        return False, "数字太大，算不动"
+    except Exception:
+        return False, "这个式子算不出来"
+
+
+def tiqu_suanshi(text):
+    """从一句话里抠出算式并算好。
+    返回 (算式片段, 结果, 错误说明)：成功时错误说明为 None；没有算式时片段是 ""。"""
+    s = guifanhua(text)
+    # 抠出所有候选片段，长的排前面（越长越可能是用户真正想问的算式）
+    houxuan = [p.strip() for p in PIAN.findall(s)]
+    houxuan = [p for p in houxuan if p]
+    houxuan.sort(key=len, reverse=True)
+
+    cuowu = None
+    for pian in houxuan:
+        tip = _zh_huan_pian(pian).strip().strip("+-*/% ")
+        # 候选必须“有数字”，并且“有运算符或函数名”，否则不是算式
+        if not re.search(r"[0-9π]", tip):
+            continue
+        if not re.search(r"[+\-*/%]|[A-Za-z]+\s*\(", tip):
+            continue
+        ok, jieguo = anquan_qiusuan(tip)
+        if ok:
+            return tip, jieguo, None
+        cuowu = cuowu or jieguo                 # 记下第一个错误原因，用于提示
+    return "", None, cuowu
+
+
+def is_calc_question(text):
+    """判断一句话是不是在算数：能抠出算式，而且确实算得出来"""
+    shi, jieguo, _ = tiqu_suanshi(text)
+    return bool(shi)
+
+
+# 用户“想算”的口头暗号：出现这些词，说明他是来算数的，不是来聊天的
+# 注意：“多少”太常见（“语料有多少字”），不放进来自动判断，只在算式不完整时兜底
+# 注意：“计算”单独两个字太宽 —— “量子计算怎么样”会被误判成来算数的。
