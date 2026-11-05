@@ -2336,3 +2336,471 @@ def shuohua(text, qingxu=None):
     if xi:
         ZUIJIN_LAIYUAN = "xianliao"
         return xi
+
+    # ⑨之五【本轮新增】求推荐：「推荐一本书」「有什么好看的」。
+    # 这类句子没有问号也没有疑问词，原来一路掉到陈述句兜底回「嗯，我在听」。
+    tui = _qiu_tui_jian(text)
+    if tui:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return tui
+
+    # 【本轮新增】先算一遍检索分，供下面“防抢话”用。
+    # 治的是这类毛病：说「我好孤独」被闲聊表的单字「好」抢走、说「想消失一段时间」
+    # 被「时间」抢走。判据只看一条：话题表命中的词太短（≤2 字）、而检索分够高，
+    # 就让检索先说话。强关键词（「爱情」「段位」这种）不受影响。
+    js_ming = _suo_yin_mingzhong(text) if JS_KAI else None
+
+    # ⑨ 追问层：这句话是不是在接着上一句往下问（为什么 / 然后呢 / 真的吗）
+    # 必须放在工具层之后、话题层之前：工具层是硬判断（报时就是报时），
+    # 而追问比话题表更依赖上下文，「然后呢」这种词不该被当成独立话题。
+    zhui = jie_zhuigen(text)
+    if zhui:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return zhui
+
+    # ⑧【本轮新增】话题层：概念性提问（爱情是什么）、开放性话题（人生有什么意义）、
+    # 日常陈述（我在想事情）都在这里被接住。
+    # 放在闲聊层之前：闲聊表里「嗯/哦/好」这类单字关键词会抢长句（「我好孤独」被判成「好」），
+    # 话题层有 266 个精确词，比它对得准。寒暄类的话和疑问句在话题表里没有对应词，
+    # 话题层会返回 None 让它们继续往下走，仍由闲聊层 / 素材检索回答。
+    # ⑧之半【本轮新增】定义型提问（X 是什么 / 什么叫 X）怎么接。
+    # 话题库里有的组是**为这个词专门写的**（「爱情」→「爱情这词定义能写一本书…」），
+    # 有的组只是**挂了这个词的场景句**（「时间」→「回忆这东西，越久越像别人讲的故事」）。
+    # 判据很简单：挑中的那句回复里有没有真的出现这个词。
+    #   出现 → 这句是为它写的，用话题层；不出现 → 答的不是这个词，走定义层。
+    ming = _pipei_huati(text)
+    ding = _jie_ding_yi(text)              # 先算出来，不能等到表命中才算
+
+    # 【本轮新增】定义型提问先看素材里有没有真答案。
+    # 「光年是什么」库里明明写着「光年是距离单位，不是时间单位」，
+    # 原来被定义层抢答成“字典给的答案通常是错的”—— 有真答案就别讲空话。
+    if ding and not ming:
+        daan = _jiansuo_daan(text)
+        if daan:
+            ZUIJIN_LAIYUAN = "xianliao"
+            return daan
+
+    # 【本轮新增】防抢话：弱词（≤2 字）命中、检索分又够高 → 让检索先答。
+    # 但人在难受的时候（「今天被领导骂了」），念一段资料不如接住情绪，
+    # 所以情绪分为负时这条不生效。
+    if (ming and js_ming and js_ming[1] >= JS_QING_CI
+            and (len(ming[0]) <= 2 or ming[0] in YIWEN_CI)
+            and _qing_fen(text) >= 0):
+        daan = _jiansuo_daan(text)
+        if daan:
+            ZUIJIN_LAIYUAN = "xianliao"
+            return daan
+
+    # 【本轮新增】连续两轮聊同一组话题（「考研」问了两遍以上），说明表里那几句
+    # 已经被轮完了，这时候改问检索：素材里有更具体的一句，胜过把同一组轮第二遍。
+    if (ming and len(HUI_HUA["ti"]) >= 2
+            and HUI_HUA["ti"][-1] == ming[0] and HUI_HUA["ti"][-2] == ming[0]):
+        daan = _jiansuo_daan(text)
+        if daan:
+            ZUIJIN_LAIYUAN = "xianliao"
+            return daan
+
+    if ming:
+        # 【本轮修】「数学难不难」这类评价型问句，话题库里若只有陈述句
+        #（「学习最反人性的是…」），念出来就是答非所问。
+        # 先在这一组里找带评价词的，找不到才退回原来的选句逻辑。
+        if _shi_ping_jia(text):
+            ping = [h for h in ming[1]
+                    if any(k in h for k in ("难", "简单", "容易", "值", "好", "差",
+                                            "累", "贵", "有用", "不行", "可以"))]
+            if ping:
+                ming = (ming[0], tuple(ping))
+        # 「你会跳舞吗」问的是会不会，挑带"我会/我不行"的答案
+        if _shi_nengli(text):
+            neng = [h for h in ming[1]
+                    if any(k in h for k in ("我会", "我不会", "我会一点", "我挺喜欢",
+                                            "我唱歌", "真让我", "我不行"))]
+            if neng:
+                ming = (ming[0], tuple(neng))
+        # 【本轮补】感情组里"暗恋"和"失恋"是两回事，同一组里混着会答错：
+        # 「我失恋了」被念成「喜欢一个人不敢说，那种憋着的感觉」。
+        # 按句子本身挑同一侧的那条。
+        # 「单身」既不是失恋也不是暗恋，自己有话说。别塞进上面任一侧。
+        if any(k in text for k in ("单身", "没对象", "一个人过", "不想谈")):
+            # 只认"单身"三个字 —— "一个人"会误命中「喜欢一个人又不敢说」
+            sh = [h for h in ming[1] if "单身" in h]
+            if sh:
+                ming = (ming[0], tuple(sh))
+            else:
+                ZUIJIN_LAIYUAN = "xianliao"
+                return _chou((
+                    "一个人有一个人的好 —— 不用解释、不用报备、周末随便怎么过。"
+                    "真要说缺什么，大概是少个能说废话的人。",
+                    "单身不是状态差，是还没碰上值得改作息的人。你现在着急吗？",
+                ))
+        # 判据不能看组名（组名是命中的那个关键词，可能是「分手」也可能是「表白」），
+        # 看这组里有没有把两类混在一起写的句子。
+        if any(("开不了口" in h or "憋着" in h) for h in ming[1]):
+            if any(k in text for k in ("失恋", "分手", "被甩", "前任", "弄丢")):
+                ai = [h for h in ming[1]
+                      if any(k in h for k in ("熬", "失去", "分开", "难过", "吃上饭"))]
+                if ai:
+                    ming = (ming[0], tuple(ai))
+            elif any(k in text for k in ("不敢", "表白", "暗恋", "开不了口", "说不出口")):
+                ai = [h for h in ming[1]
+                      if any(k in h for k in ("开不了口", "不敢", "憋着", "最坏"))]
+                if ai:
+                    ming = (ming[0], tuple(ai))
+        ci, hui = ming[0], _xuan_bu_chongfu(ming[1])   # 同一组里换一句没刚说过的
+        if ci in hui:                      # 这句是为这个词专门写的
+            ZUIJIN_LAIYUAN = "xianliao"
+            return hui
+        if ding:                           # 场景句答的不是这个词 → 先问素材，再退回定义层
+            daan = _jiansuo_daan(text)
+            if daan:
+                ZUIJIN_LAIYUAN = "xianliao"
+                return daan
+            ZUIJIN_LAIYUAN = "xianliao"
+            return ding
+        ZUIJIN_LAIYUAN = "xianliao"
+        return hui
+    if ding:                               # 表没命中，但有定义型语气
+        ZUIJIN_LAIYUAN = "xianliao"
+        return ding
+
+    huati = jie_huati(text)
+    if huati:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return huati
+
+    # 话题层也接不住 → 先看闲聊层（问候、情绪、自我介绍这类）
+    zl = xianliao(text, qingxu)
+    if zl:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return zl
+
+    # 话题层也没命中 → 看是不是“正经提问”。
+    # 二字模型只会接字，回答不了“人工智能是什么”“为什么要早睡”这种真问题，
+    # 硬接只会接出一段不通的话（用户反馈的“生硬”大半来自这里）。
+    # 但“接不住”不再等于“答不上来”：疑问句先去素材里找现成答案，
+    # 找不到也要点出话题、给个看法、把话头递回去（_jie_wen_ti）。
+    # 【本轮新增】没带问号也在问事（多少/多久/还是/该不该…）→ 先让检索试一次
+    if any(k in text for k in WEN_FA_2):
+        daan = _jiansuo_daan(text)
+        if daan:
+            ZUIJIN_LAIYUAN = "xianliao"
+            return daan
+
+    if _shi_yiwen(text):
+        ZUIJIN_LAIYUAN = "xianliao"
+        daan = _jiansuo_daan(text)      # 先去素材里找现成答案
+        if daan:
+            return daan
+        ding = _jie_ding_yi(text)       # 定义型提问（X 是什么）单独接
+        if ding:
+            return ding
+        ZUIJIN_MEI_DA = True            # 素材里没这句，记一笔待补语料
+        return _jie_wen_ti(text)
+
+    # 陈述句 → 先试"顺着你的话接一句"，接得上就直接说人话。
+    # 这一步是修“你说呗 → 「你说呗」这个我真说不上来”那类生硬的关键：
+    # 短句不该交给只会接字的二字模型，它接不出对得上的话。
+    shun = _duida(text)
+    if shun:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return shun
+
+    # 顺接不上 → 陈述句交给 _jie_chen_shu（按处境接话 + 具体追问）。
+    #
+    # 【本轮为什么不再交给二字模型】
+    # 二字模型只会「看前两个字猜下一个字」，它接得出语法通顺、内容无关的句子：
+    #   我撒了个谎       -> 「了个电话，问我最近想学做一道新菜。」
+    #   镜子里觉得自己丑 -> 「子里就没那么安静了。饭后洗碗是一天里最放松的几分钟。」
+    # 这种句子过了质量体检（有标点、够长、没车轱辘话），但答非所问 ——
+    # 它正是用户说的「接不上话」里最刺眼的那一类。宁可说一句朴素但贴题的，
+    # 也不要一句漂亮但无关的。模型仍保留给需要「接字」的场景，不让它接整句。
+    ZUIJIN_LAIYUAN = "xianliao"
+    ZUIJIN_MEI_DA = True                # 顺接也没接上，同样记一笔
+    return _jie_chen_shu(text)
+
+
+def shuohua_jilu(text, qingxu=None):
+    """shuohua 的带记忆版本：说完就把这一轮记进 SHANG_YI_LUN
+
+    为什么不直接在 shuohua 里记？因为 shuohua 有十几处 return，
+    逐处加记录既容易漏、又容易在异常路径上漏记。包一层最稳：
+    无论从哪条路返回，都能保证「上一轮」被更新。
+    """
+    da = shuohua(text, qingxu)
+    _ji_xia_shang_yi_lun(text, da)
+    # 【本轮新增】三件事：记去重历史、记会话状态、没答上的攒进待补语料
+    try:
+        JIN_QI.append(da or "")
+    except Exception:
+        pass
+    _ji_hui_hua(text, da, ZUIJIN_LAIYUAN)
+    if ZUIJIN_MEI_DA:
+        _ji_dai_bu(text)
+    return da
+
+
+def _zhao_qi_dian(text):
+    """从用户这句话里挑一个模型认识的上文当起点，挑不到就用末两字"""
+    # 优先：话里第一个模型认识的二字词。
+    # 为什么取第一个而不是最后一个？“人工智能是什么”里的“什么”模型也认识，
+    # 但拿“什么”开头会接出“什么东西”这种半句；取“人工”才接得成“人工智能……”。
+    houxuan = [text[i:i + N] for i in range(max(len(text) - N + 1, 0))]
+    renshi = [w for w in houxuan if w in model]
+    if renshi:
+        return renshi[0]
+    return text[-N:] if len(text) >= N else text
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 第六部分之二【新增】闲聊层：把“接不上话就硬编”改成“真的在接话”
+# ------------------------------------------------------------------------------
+# 为什么加这一层？第一版只靠大模型 generate() 接话，而它只会“看着上两个字猜下一个字”，
+# 遇到“你开心吗”“你难过吗”这种话，会从“开心”“难过”的末两字“心吗”“过吗”硬接，
+# 于是回出“好呀，心吗”“过吗”这种不通的句子——这就是用户说的“太生硬”。
+#
+# 这一层做三件事：
+#   ① 常见寒暄/情绪问答，直接给像人说的话（问候、你是谁、你会什么、你开心吗、
+#      你累不累、谢谢、对不起、夸我、我难过……）
+#   ② “你开心吗”这类问心情的，按窗口右上角的状态条如实回答，不是编的
+#   ③ 实在没听懂 → 不硬编，而是承认没听懂 + 把话头递回去 + 指条明路
+# 大模型接话仍然保留：只要它接出来的话“像话”（通过 _shuohua_zhiliang 检查），就用它的。
+# ══════════════════════════════════════════════════════════════════════════════
+
+ZUIJIN_LAIYUAN = "gongju"     # 最近一次回复来自哪一层：gongju / xianliao / damoxing
+ZUIJIN_MEI_DA = False         # 这一轮是不是“没真答上”（只说了句兜底话），供攒语料用
+
+
+# 问句里的“废话词”：去掉它们，剩下的才是真正要问的东西
+WENFEI_CI = ("请问", "我想知道", "你知道", "能不能", "可以", "告诉我", "帮我",
+             "什么叫", "是什么", "什么是", "为什么", "怎么样", "怎么", "如何", "有哪些",
+             "才能", "才不", "才可以", "能不", "教你",  # 「怎么才能早睡」→ 早睡
+             "有什么", "介绍一下", "介绍", "讲讲", "说说", "解释", "区别",
+             "觉得", "认为", "知道", "看看", "想想", "了解",
+             "吗", "呢", "啊", "呀", "的", "了", "是", "我", "你", "？", "?", "，", "。")
+
+
+# 削话题词头尾用的虚词（只用两字以上的，单字会误伤实词）
+_TOU_WEI_CI = ("到底", "究竟", "还有", "真的", "到底有", "究竟是", "算是",
+               "这世界", "这个世界", "那么", "所以", "就是说",
+               # 「人为什么要活着」→「人要活着」，削掉领字才成词。
+               # 只用两字以上的组合：单字「要」会把「重要」削成「重」，
+               # 于是「数据标注重要吗」的话题词变成「数据标注重」。
+               "想要", "应该", "会在", "要在", "要想", "需要")
+
+
+def _ti_hua_ti(text):
+    """从问句里抽“要问的东西”：删掉疑问词，留下实词"""
+    s = text
+    for ci in sorted(WENFEI_CI, key=len, reverse=True):
+        s = s.replace(ci, " ")
+    # 按空格切开，取最长的那个片段当话题（“人工智能”比“个”更有信息量）
+    suoyou = [p for p in s.split() if p]
+    pian = [p for p in suoyou if len(p) >= 2]
+    if not pian:
+        return ""
+    ti = max(pian, key=len)
+    # 【本轮补】主语被疑问词切走了：「猫为什么半夜闹」会只剩「半夜闹」，
+    # 拿它去查永远查不到「猫」那条。把话题前面那几个 1~2 字的片段接回来。
+    if len(suoyou) > 1:
+        qie = suoyou.index(ti)
+        for p in suoyou[:qie]:
+            if 1 <= len(p) <= 2 and p not in ("这个", "那个", "什么"):
+                ti = p + ti
+                break
+    # 边角料：删完疑问词后常留下「人到底」「这世界还有」这种半截话，
+    # 直接塞进模板会变成「问到「人到底」了」。把两头这些词再削一遍。
+    for ci in sorted(_TOU_WEI_CI, key=len, reverse=True):
+        if ti.endswith(ci) and len(ti) > len(ci):
+            ti = ti[:-len(ci)]
+        if ti.startswith(ci) and len(ti) > len(ci):
+            ti = ti[len(ci):]
+    return ti
+
+
+# 检索到原文时怎么说 —— 不能露出"素材/训练"这类词，要像人自己想起一件事
+XIANG_QI_LAI = (
+    "你这一问，我倒想起来了 —— %s：\n    %s",
+    "说到%s，我脑子里有这么一段：\n    %s",
+    "这个我知道一点。%s这事儿，我记着的是：\n    %s",
+    "嗯，%s嘛……我想起来的是这么一句：\n    %s",
+)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 检索（本轮重写）：BM25 + 严格止损 + 下邻句 + 去重
+# ------------------------------------------------------------------------------
+# 三条规矩，改的时候别破坏：
+#   ① 没把握就不答 —— top1 分数不够、或者跟 top2 分不开，一律返回 None，
+#      让后面的层接着说人话。宁可说一句朴素的，也不能答非所问。
+#   ② 只有“接着上一段”的问法才用下邻句 —— 「然后呢」「后来呢」问的是命中句的
+#      下一句；普通提问仍用命中句本身，否则会答到下一件事上去。
+#   ③ 说过的话不重复 —— 最近 8 条回复里像的就换下一条候选。
+# ══════════════════════════════════════════════════════════════════════════════
+
+JS_KAI = True          # 检索总开关：False = 回到旧的“覆盖率 ≥ 0.5”算法，别处不受影响
+JS_YU_ZHI = 3.0        # top1 最低分，低于它等于“没查到”
+JS_CHA = 1.35          # top1 至少要比 top2 高这么多倍；分不开就当没查到
+JS_FU_GAI = 0.5        # 问句里的词，候选句至少得对上这么多比例，否则算没查到
+JS_QING_CI = 6.0       # 话题表靠一两个字的弱词命中、而检索分高过它时，让检索优先
+# 「要不要/该不该」这类词本身是提问，不是话题；它们命中的组多半在讲“怎么选”，
+# 而用户其实在问一个具体的事（「看番要不要开弹幕」）。
+YIWEN_CI = ("要不要", "该不该", "能不能", "可不可以", "行不行", "是不是",
+            "有没有", "值不值", "算不算", "好不好")
+JS_MAO_ZUI_DUAN = 2    # 话题锚定最短退到 2 个字（「光年」「减肥」这种词本身就是话题）
+# 这些词太泛，拿它们当锚会把“我最近在减肥”答成“给家里打了个电话”
+JS_FAN_CI = ("最近", "今天", "现在", "早上", "晚上", "时候", "这个", "那个",
+             "什么", "怎么", "可以", "一个", "我们", "你们", "他们", "就是",
+             # 追问词本身不能当锚：「然后呢」会锚到句子里随便一个「然后」，
+             # 于是答出「这样一个字一个字地写下去」这种毫不相干的话。
+             "然后", "后来", "接着", "还有", "之后", "下面", "继续", "具体",
+             # 时间/频率副词当锚会撞上任何一句带它的日常话：
+             # 「每天学到几点合适」曾被答成「那只黄狗我认识，每天早上都跟着主人去买菜」。
+             "每天", "每周", "每年", "每次", "有时", "一直", "很多", "一点",
+             "有点", "上午", "中午", "下午", "一天", "两天")
+JS_K1, JS_B = 1.2, 0.75
+
+# 【本轮新增】没带问号、但明显在问事的说法。
+# 「冰箱温度调多少合适」「挂号要提前多久」都不以吗/呢/？结尾，`_shi_yiwen()`
+# 判成陈述句，于是从不调用检索，直接掉进陈述兜底 —— 其实库里就有答案。
+WEN_FA_2 = ("多少", "多久", "几天", "几点", "几年", "几个", "怎么办", "怎么回事",
+            "还是", "该不该", "要不要", "行不行", "能不能", "可不可以", "什么时候",
+            "哪里", "哪儿", "算不算", "有没有", "为什么", "怎么",
+            # 【本轮补】「耳机音量开多大合适」这类，原来判成陈述句掉进"这事儿听着不轻"
+            "多大", "多高", "多长", "多快", "多贵", "多远", "多重", "多疼", "多累")
+
+JIN_QI = deque(maxlen=8)                    # 最近说过的 8 句（去重用）
+_SHUI_LUN = ("然后呢", "后来呢", "接着", "还有呢", "再呢", "之后呢", "下面呢")
+
+
+def _xiang_si(a, b):
+    """两句像不像（0~1）。用标准库 difflib，不引第三方。"""
+    try:
+        return difflib.SequenceMatcher(None, a or "", b or "").ratio()
+    except Exception:
+        return 0.0
+
+
+def _xuan_bu_chongfu(houxuan, mianchu=False):
+    """从候选里挑一条最近没说过的话；全说过就挑第一条。
+
+    mianchu=True 给安抚/危机句用 —— 那种时候“这话刚说过”不该成为换掉它的理由。
+    """
+    houxuan = [h for h in houxuan if h]
+    if not houxuan:
+        return ""
+    if not mianchu:
+        for h in houxuan:
+            if not any(_xiang_si(h, j) > 0.6 for j in JIN_QI):
+                return h
+    return houxuan[0]
+
+
+def _chou(xu):
+    """随机抽一句，但优先抽最近没说过的 —— 治“复读机”的统一出口。
+
+    除了去重，这里还管两件“节奏”上的事：
+      ① 最近三条里有两条以上以问号收尾 → 这一轮优先挑不带问号的，别像记者提问；
+      ② 最近两轮情绪都低落 → 同样避开反问句（难受的时候被反问更累）。
+    两件都只影响“挑哪句”，一个字都不改文案。
+    """
+    try:
+        xu = list(xu)
+        if not xu:
+            return ""
+        tiao = xu
+        if _wen_wei_duo() or _qing_di():
+            bu_wen = [x for x in xu if not x.rstrip().endswith(("？", "?"))]
+            if bu_wen:
+                tiao = bu_wen
+        return _xuan_bu_chongfu(tiao) or _xuan_bu_chongfu(xu) or random.choice(xu)
+    except Exception:
+        return random.choice(list(xu))
+
+
+def _bm25(text):
+    """给候选句打分。
+
+    返回 (分数表, 命中词数表)：
+      分数表 {句号: 分数} 按 BM25 算，只在命中的二元组上遍历，不扫全库；
+      命中词数表 {句号: 问句里有几个词在这句出现了} —— 光看分数不行，
+      生僻词（“量子”“灯塔”）命中一个就能把分数顶得很高，必须再加覆盖率兜着，
+      否则「量子计算是什么」会被捞去答「灯塔」。
+    """
+    ci = set(_er_yuan(text)) - TING_YONG
+    fen = defaultdict(float)
+    pipei = defaultdict(int)
+    for t in ci:
+        if t not in DAOPAI:
+            continue
+        df = len(DAOPAI[t])
+        idf = math.log(1.0 + (len(JUZI) - df + 0.5) / (df + 0.5))
+        for i, tf in DAOPAI[t]:
+            fen[i] += (idf * tf * (JS_K1 + 1)
+                       / (tf + JS_K1 * (1 - JS_B + JS_B * CHANG_DU[i] / PINGJUN_CHANG))
+                       * JUZI_QUAN[i])
+            pipei[i] += 1
+    return fen, pipei, len(ci)
+
+
+def _suo_yin_mingzhong(text, yan_ge=False):
+    """检索一回合：打分 + 止损。返回 (句号, 分数, 是不是“接着上一段”的问法) 或 None
+
+    yan_ge=True 时收紧锚定：只认 4 字以上的片段，也不做 2 字兜底。
+    追问层用严格模式 —— 「我很喜欢一个人」之后说「然后呢」，宽松模式会锚到
+    「一个人」三个字，然后念一句「一个人待着和孤独不是一回事」，答非所问。
+    """
+    if not JUZI:
+        return None
+    chaxun = text
+    # 短追问（「然后呢」）自己没信息量，把上一轮的话题拼上再查，否则什么都查不到
+    if len(_er_yuan(text)) <= 2 or any(k in text for k in _SHUI_LUN):
+        shang = _shang_ti()
+        if shang:
+            chaxun = text + " " + shang
+    fen, pipei, ci_shu = _bm25(chaxun)
+    if not fen or not ci_shu:
+        return None
+
+    zhui = any(k in text for k in _SHUI_LUN)
+
+    # 【本轮新增】小说句子只给“故事类”追问用。
+    # 「睡不着怎么办」原来被答成「陈屿躺在床上睡不着，手机忽然震了一下」——
+    # 素材二那 66 句小说权重最低（0.85），可它在字面上确实更贴。
+    # 规则：不是「然后呢」这类续讲时，叙事类候选一律不参与。
+    def ke_yong(i):
+        return zhui or JUZI_QUAN[i] > 0.86
+
+    # 止损一：问的那个词得原样出现在候选句里，才算真的查到了这件事。
+    # 「量子计算是什么」在库里没有「量子」，只有「计算」，光看 BM25 会被捞去答
+    # 「它会计算出下一个字最可能是什么」—— 这就是答非所问的来源。
+    # 反过来，话题原样出现的，分差再小也用（它已经锚住了，候选是同一件事的不同说法）。
+    ti = _ti_hua_ti(text)
+    if len(ti) >= 2:
+        # 「那参数量越大越好吗」开头的「那」是口头语，不是话题的一部分
+        if len(ti) > 3 and ti[0] in "那这":
+            ti = ti[1:]
+        # 先试整词，再一路退：问「人工智能会取代人吗」，整串库里没有，
+        # 但「人工智能」有 —— 那就答人工智能那一条，别因为多了半句就整题不答。
+        # 前缀退完退后缀：「你懂量子计算吗」的实词在尾巴上（量子计算）。
+        zui_duan = 4 if yan_ge else 3
+        kao = [ti[:k] for k in range(len(ti), zui_duan - 1, -1)]
+        kao += [ti[-k:] for k in range(len(ti) - 1, zui_duan - 1, -1)]
+        kao = [x for x in kao if len(x) >= zui_duan]
+        if len(ti) <= 3:
+            kao.append(ti)
+        for qian in kao:
+            if qian in JS_FAN_CI:
+                continue
+            yan = sorted(((i, fen[i]) for i in fen if qian in JUZI[i] and ke_yong(i)),
+                         key=lambda x: -x[1])
+            if yan and yan[0][1] >= JS_YU_ZHI:
+                return yan[0][0], yan[0][1], zhui
+
+        # 最后才退到 2 个字，而且只认“够具体”的词：
+        # 「冰箱」「挂号」这种在库里只出现在一两句里，锚得住；
+        # 「手机」「时间」这种一锚一大片，宁可说“不知道”。
+        if len(ti) >= 3 and not yan_ge:
+            qian = ti[:2]
+            if qian not in JS_FAN_CI and len(DAOPAI.get(qian, ())) <= 5:
+                # 两字锚必须“多对上一个词”，否则「如何识别诈骗」会被
+                # 「听歌识曲识别不了现场版」捞走 —— 只对上一个「识别」不够。
+                yan = sorted(((i, fen[i]) for i in fen
