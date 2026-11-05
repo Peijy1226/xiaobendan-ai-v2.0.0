@@ -1711,3 +1711,628 @@ def _du_dai_bu():
     except Exception:
         pass
 
+
+def _ji_dai_bu(text):
+    """把“没答上”的话记一笔。失败一律吞掉 —— 记录不该影响聊天。"""
+    try:
+        t = (text or "").strip()
+        if len(t) < 4 or t in DAI_BU_YI_YOU:
+            return
+        if not any("\u4e00" <= ch <= "\u9fa5" for ch in t):
+            return
+        if len(DAI_BU_YI_YOU) >= DAI_BU_SHANG_XIAN:
+            return
+        xin = not os.path.exists(DAI_BU_LU)
+        with open(DAI_BU_LU, "a", encoding="utf-8") as f:
+            if xin:
+                f.write("# 这些是“没答上”的话，程序自动记的。\n"
+                        "# 用法：挑有用的，改写成一句像人说的话，一行一句，存进 语料/ 目录。\n"
+                        "# 格式：时间\t你当时说的话\n")
+            f.write("%s\t%s\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), t))
+        DAI_BU_YI_YOU.add(t)
+    except Exception:
+        pass
+
+
+def _ji_hui_hua(text, da, lai):
+    """每轮说完记一笔：最近 6 轮 + 话题词 + 情绪分"""
+    try:
+        HUI_HUA["lun"].append((text or "", da or "", lai or ""))
+        ming = _pipei_huati(text or "")
+        ti = ming[0] if ming else _ti_hua_ti(text or "")
+        if ti and len(ti) >= 2:
+            HUI_HUA["ti"].append(ti)
+        HUI_HUA["qing"].append(_qing_fen(text or ""))
+        # 单独存“有内容的话”：连问七八句「然后呢」时，6 轮窗口里全是追问，
+        # 回头找不到一句能拿来填空的实句。
+        w = (text or "").strip()
+        if len(w) >= 4 and not any(k in w for k in _ZHUI_QUAN_CI):
+            HUI_HUA["ju"].append(w)
+    except Exception:
+        pass
+
+
+# 口语归一：把方言/口头语换成程序认识的说法，只改“理解”，不改回复用词
+_KOU_YU = (("晓得", "知道"), ("咋办", "怎么办"), ("咋样", "怎么样"), ("咋回事", "怎么回事"),
+           ("咋", "怎么"), ("啥意思", "什么意思"), ("啥玩意", "什么东西"), ("啥", "什么"),
+           ("甭", "不用"), ("俺", "我"), ("整明白", "弄明白"), ("中不中", "行不行"),
+           ("得瑟", "得意"), ("老铁", "朋友"))
+
+
+def _gui_kou_yu(t):
+    for a, b in _KOU_YU:
+        t = t.replace(a, b)
+    return t
+
+
+def _shang_ti():
+    """上一轮（或更早）聊的是什么 —— 短输入靠它续上文"""
+    if HUI_HUA["ti"]:
+        return HUI_HUA["ti"][-1]
+    return SHANG_YI_LUN.get("ti") or ""
+
+
+_du_dai_bu()
+
+
+
+# ======================================================================
+# 换算：汇率 / 亲戚称谓 / 单位 / 日期差 / 百分比 / 进制
+# ----------------------------------------------------------------------
+# 功能页那六张卡以前只是"把示例填进输入框"，而程序本身根本看不懂
+# 「100美元换人民币」——点了等于没点。这一段真的把六类都算出来。
+#
+# 三条原则：
+#   ① 认不出来就返回 None，绝不硬猜（猜错比不答更糟）。
+#   ② 汇率是**离线参考表**，会过期，所以每句都注明"参考"和系数。
+#   ③ 输出是一句人话，不是一串数字。
+# ======================================================================
+
+_HL_BILV = {
+    "美元": 7.10, "美金": 7.10, "usd": 7.10,
+    "欧元": 7.72, "eur": 7.72,
+    "日元": 0.0475, "jpy": 0.0475,
+    "英镑": 9.02, "gbp": 9.02,
+    "港币": 0.912, "港元": 0.912, "hkd": 0.912,
+    "韩元": 0.0052, "krw": 0.0052,
+    "澳元": 4.65, "aud": 4.65,
+    "加元": 5.18, "cad": 5.18,
+    "新加坡元": 5.30, "sgd": 5.30,
+    "瑞士法郎": 8.10, "chf": 8.10,
+    "台币": 0.222, "twd": 0.222,
+    "人民币": 1.0, "cny": 1.0, "rmb": 1.0, "元": 1.0,
+}
+
+_HL_QIN = {
+    "爸爸的爸爸": "爷爷", "爸爸的妈妈": "奶奶",
+    "爸爸的哥哥": "伯父", "爸爸的弟弟": "叔叔",
+    "爸爸的姐姐": "姑妈", "爸爸的妹妹": "姑妈",
+    "妈妈的爸爸": "外公", "妈妈的妈妈": "外婆",
+    "妈妈的哥哥": "舅舅", "妈妈的弟弟": "舅舅",
+    "妈妈的姐姐": "姨妈", "妈妈的妹妹": "姨妈",
+    "哥哥的妻子": "嫂子", "弟弟的妻子": "弟媳",
+    "姐姐的丈夫": "姐夫", "妹妹的丈夫": "妹夫",
+    "儿子的妻子": "儿媳", "女儿的丈夫": "女婿",
+    "姑妈的丈夫": "姑父", "姨妈的丈夫": "姨父",
+    "舅舅的妻子": "舅妈", "伯父的妻子": "伯母",
+    "叔叔的妻子": "婶婶",
+    "哥哥的儿子": "侄子", "弟弟的儿子": "侄子",
+    "哥哥的女儿": "侄女", "弟弟的女儿": "侄女",
+    "姐姐的儿子": "外甥", "妹妹的儿子": "外甥",
+    "姐姐的女儿": "外甥女", "妹妹的女儿": "外甥女",
+    "儿子的儿子": "孙子", "儿子的女儿": "孙女",
+    "女儿的儿子": "外孙", "女儿的女儿": "外孙女",
+    "爷爷的爸爸": "曾祖父", "爷爷的妈妈": "曾祖母",
+    "外公的爸爸": "外曾祖父", "外公的妈妈": "外曾祖母",
+}
+
+
+def _hl_cn_num(t):
+    """中文数字 → float：八 → 8、十五 → 15、两 → 2"""
+    if not t:
+        return None
+    biao = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+            "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    t = t.strip()
+    if re.fullmatch(r"\d+(?:\.\d+)?", t):
+        return float(t)
+    if t in biao:
+        return float(biao[t])
+    if len(t) == 2 and t[0] == "十" and t[1] in biao:
+        return float(10 + biao[t[1]])
+    if len(t) == 2 and t[1] == "十" and t[0] in biao:
+        return float(biao[t[0]] * 10)
+    if len(t) == 3 and t[1] == "十" and t[0] in biao and t[2] in biao:
+        return float(biao[t[0]] * 10 + biao[t[2]])
+    return None
+
+
+# 每个单位换算到基准要乘多少（长度=米 / 重量=千克 / 面积=平方米 / 存储=字节 / 时间=秒）
+_HL_DANWEI = {
+    "公里": ("chang", 1000.0), "千米": ("chang", 1000.0), "km": ("chang", 1000.0),
+    "米": ("chang", 1.0), "m": ("chang", 1.0),
+    "分米": ("chang", 0.1), "厘米": ("chang", 0.01), "cm": ("chang", 0.01),
+    "毫米": ("chang", 0.001), "mm": ("chang", 0.001),
+    "英里": ("chang", 1609.34), "mile": ("chang", 1609.34),
+    "英尺": ("chang", 0.3048), "ft": ("chang", 0.3048),
+    "英寸": ("chang", 0.0254), "inch": ("chang", 0.0254),
+    "码": ("chang", 0.9144),
+    "吨": ("zhong", 1000.0), "t": ("zhong", 1000.0),
+    "千克": ("zhong", 1.0), "公斤": ("zhong", 1.0), "kg": ("zhong", 1.0),
+    "克": ("zhong", 0.001), "g": ("zhong", 0.001),
+    "斤": ("zhong", 0.5), "两": ("zhong", 0.05),
+    "磅": ("zhong", 0.4536), "lb": ("zhong", 0.4536),
+    "盎司": ("zhong", 0.02835), "oz": ("zhong", 0.02835),
+    "平方米": ("mianji", 1.0), "平米": ("mianji", 1.0),
+    "亩": ("mianji", 666.667), "公顷": ("mianji", 10000.0),
+    "平方公里": ("mianji", 1000000.0),
+    "tb": ("cunchu", 1024.0 ** 4), "gb": ("cunchu", 1024.0 ** 3),
+    "mb": ("cunchu", 1024.0 ** 2), "kb": ("cunchu", 1024.0), "b": ("cunchu", 1.0),
+    "天": ("shijian", 86400.0), "小时": ("shijian", 3600.0),
+    "分钟": ("shijian", 60.0), "分": ("shijian", 60.0),
+    "秒": ("shijian", 1.0), "周": ("shijian", 604800.0),
+}
+
+_HL_DANWEI_DAN = ("km", "m", "cm", "mm", "kg", "g", "t", "lb", "oz",
+                  "tb", "gb", "mb", "kb", "b", "mile", "ft", "inch")
+
+
+def _hl_danwei(ming):
+    """单位名 → (类, 系数)。先按全名查，再按小写缩写查"""
+    ming = (ming or "").strip().lower()
+    if ming in _HL_DANWEI:
+        return _HL_DANWEI[ming]
+    if ming in _HL_DANWEI_DAN:
+        return _HL_DANWEI[ming]
+    return None
+
+
+def _hl_liang_ming(lei, zhi):
+    """把基准值拼成人话：5000 米 → "5 公里" 这种更好读"""
+    if lei == "chang":
+        if zhi >= 1000:
+            return "%.2f 公里" % (zhi / 1000.0)
+        if zhi >= 1:
+            return "%.2f 米" % zhi
+        return "%.1f 厘米" % (zhi * 100)
+    if lei == "zhong":
+        if zhi >= 1000:
+            return "%.2f 吨" % (zhi / 1000.0)
+        if zhi >= 1:
+            return "%.2f 千克" % zhi
+        return "%.1f 克" % (zhi * 1000)
+    if lei == "mianji":
+        if zhi >= 10000:
+            return "%.2f 公顷" % (zhi / 10000.0)
+        return "%.2f 平方米" % zhi
+    if lei == "cunchu":
+        for dan, k in (("TB", 1024.0 ** 4), ("GB", 1024.0 ** 3),
+                       ("MB", 1024.0 ** 2), ("KB", 1024.0)):
+            if zhi >= k:
+                return "%.2f %s" % (zhi / k, dan)
+        return "%.0f B" % zhi
+    if lei == "shijian":
+        if zhi >= 86400:
+            return "%.2f 天" % (zhi / 86400.0)
+        if zhi >= 3600:
+            return "%.2f 小时" % (zhi / 3600.0)
+        if zhi >= 60:
+            return "%.2f 分钟" % (zhi / 60.0)
+        return "%.0f 秒" % zhi
+    return "%.2f" % zhi
+
+
+def _hl_bilv(text):
+    """汇率：100美元换人民币"""
+    if not re.search(r"换|兑换|等于|是多少|换算|to", text, re.I):
+        return None
+    m = re.search(
+        r"(\d+(?:\.\d+)?)\s*(美元|美金|欧元|日元|英镑|港币|港元|韩元|澳元|加元|"
+        r"新加坡元|瑞士法郎|台币|人民币|usd|eur|jpy|gbp|hkd|krw|aud|cad|sgd|chf|twd|cny|rmb)"
+        r"\s*(?:换|兑换|换算成|等于|是多少|是|to)\s*(?:多少)?\s*"
+        r"(美元|美金|欧元|日元|英镑|港币|港元|韩元|澳元|加元|新加坡元|瑞士法郎|"
+        r"台币|人民币|usd|eur|jpy|gbp|hkd|krw|aud|cad|sgd|chf|twd|cny|rmb)?",
+        text, re.I)
+    if not m:
+        return None
+    shu = float(m.group(1))
+    lai = m.group(2)
+    qu = m.group(3) or "人民币"
+    a = _HL_BILV.get(lai.lower() if lai.lower() in _HL_BILV else lai)
+    b = _HL_BILV.get(qu.lower() if qu.lower() in _HL_BILV else qu)
+    if a is None or b is None:
+        return None
+    jieguo = shu * a / b
+    return ("%g %s ≈ %.2f %s。离线用的参考汇率：1 %s ≈ %.4g %s，"
+            "实际以银行牌价为准。" % (shu, lai, jieguo, qu, lai, a / b, qu))
+
+
+def _hl_qinqi(text):
+    """亲戚称谓：爸爸的姐姐叫什么"""
+    if "叫" not in text and "称呼" not in text:
+        return None
+    # 取出"叫"之前那串称谓链
+    qian = re.split(r"怎么|该叫|应该|叫什么|叫啥|称呼", text)[0]
+    qian = re.sub(r"^(请问|问一下|我想问|那个|那么|所以)+", "", qian).strip("，,。？?！! ")
+    if "的" not in qian and qian not in _HL_QIN:
+        return None
+    # 只保留称谓片段（把"我爸爸的姐姐"这种前缀削掉）
+    guan = ("爸爸", "妈妈", "哥哥", "弟弟", "姐姐", "妹妹", "儿子", "女儿",
+            "爷爷", "奶奶", "外公", "外婆", "丈夫", "妻子", "老婆", "老公")
+    m = re.search(r"((?:%s)(?:的(?:%s))*)"
+                  % ("|".join(guan), "|".join(guan + ("姑妈", "姨妈", "舅舅",
+                                                      "伯父", "叔叔", "舅妈",
+                                                      "姑父", "姨父", "嫂子",
+                                                      "弟媳", "姐夫", "妹夫"))),
+                  qian)
+    if not m:
+        return None
+    lian = m.group(1)
+    bu = lian.split("的")
+    dang = bu[0]
+    i = 1
+    while i < len(bu):
+        # 「老公/老婆」和「丈夫/妻子」是同一个关系，表里只存了一种写法
+        yao = (dang + "的" + bu[i]).replace("老公", "丈夫").replace("老婆", "妻子")
+        if yao in _HL_QIN:
+            dang = _HL_QIN[yao]
+            i += 1
+        else:
+            # 换一种叫法再试（"姐姐"在链里也可能写成"姐"）
+            return None
+    if dang == bu[0]:
+        return None
+    return "%s，叫「%s」。" % (lian, dang)
+
+
+def _hl_danwei_huansuan(text):
+    """单位：5公里等于多少米 / 30摄氏度等于多少华氏度
+
+    坑：单位名不能用 [\u4e00-\u9fa5]{1,6} 去猜 —— 贪婪会把"等于"一起吃进去，
+    得到 lai="公里等于"，查表查不到，于是整句算不出来（实测就是这样）。
+    所以这里用已知单位名拼正则，长的排前面（"平方公里"要在"公里"之前）。
+    """
+    # 温度单独处理（不是乘系数）
+    m = re.search(r"(-?\d+(?:\.\d+)?)\s*(摄氏度|度c|℃|摄氏|华氏度|度f|℉|华氏)\s*"
+                  r"(?:等于|是|换算成|转成|换成)?\s*(?:多少|几)?\s*"
+                  r"(摄氏度|度c|℃|摄氏|华氏度|度f|℉|华氏)", text, re.I)
+    if m:
+        zhi = float(m.group(1))
+        lai = m.group(2).lower()
+        qu = m.group(3).lower()
+        she = lai in ("摄氏", "摄氏度", "度c", "℃")
+        if she and qu not in ("摄氏", "摄氏度", "度c", "℃"):
+            return "%g 摄氏度 = %.1f 华氏度。" % (zhi, zhi * 9 / 5 + 32)
+        if (not she) and qu in ("摄氏", "摄氏度", "度c", "℃"):
+            return "%g 华氏度 = %.1f 摄氏度。" % (zhi, (zhi - 32) * 5 / 9)
+
+    ming = sorted(_HL_DANWEI.keys(), key=len, reverse=True)
+    pat = "|".join(re.escape(x) for x in ming)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(%s)\s*"
+                  r"(?:等于|是|换算成|转成|换成)\s*(?:多少|几)?\s*(%s)?" % (pat, pat),
+                  text, re.I)
+    if not m:
+        return None
+    zhi = float(m.group(1))
+    lai = _hl_danwei(m.group(2))
+    if lai is None:
+        return None
+    qu_ming = m.group(3)
+    qu = _hl_danwei(qu_ming) if qu_ming else None
+    if qu is None:
+        lei = lai[0]
+        if lei == "chang":
+            return "%g %s = %s。" % (zhi, m.group(2),
+                                     _hl_liang_ming(lei, zhi * lai[1]))
+        return None
+    if lai[0] != qu[0]:
+        return None
+    jieguo = zhi * lai[1] / qu[1]
+    return "%g %s = %.4g %s。" % (zhi, m.group(2), jieguo, qu_ming)
+
+
+def _hl_riqi(text):
+    """日期差：3月5日到4月2日几天"""
+    m = re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]\s*(?:到|至|-|~|—)\s*"
+                  r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]", text)
+    if not m:
+        return None
+    import datetime as _dt
+    jin = _dt.date.today()
+    try:
+        a = _dt.date(jin.year, int(m.group(1)), int(m.group(2)))
+        b = _dt.date(jin.year, int(m.group(3)), int(m.group(4)))
+    except Exception:
+        return "这个日期不存在（月份或日子超了）。"
+    if b < a:
+        b = _dt.date(jin.year + 1, int(m.group(3)), int(m.group(4)))
+    tian = (b - a).days
+    return "%s月%s日到%s月%s日一共 %d 天。" % (
+        m.group(1), m.group(2), m.group(3), m.group(4), tian)
+
+
+def _hl_baifenbi(text):
+    """百分比：打八折是多少 / 200打八折 / 200的15%"""
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:块|元|钱)?\s*打\s*([一二三四五六七八九十两\d.]+)\s*折",
+                  text)
+    if m:
+        ji = float(m.group(1))
+        zhe = _hl_cn_num(m.group(2))
+        if zhe:
+            return "%g 块打 %s 折 = %.2f 块（省了 %.2f）。" % (
+                ji, m.group(2), ji * zhe / 10.0, ji - ji * zhe / 10.0)
+    m = re.search(r"打\s*([一二三四五六七八九十两\d.]+)\s*折", text)
+    if m:
+        zhe = _hl_cn_num(m.group(1))
+        if zhe:
+            return ("打 %s 折就是原价乘 %.1f —— 100 块的東西算下来 %.0f 块。"
+                    % (m.group(1), zhe / 10.0, 100 * zhe / 10.0))
+    m = re.search(r"(\d+(?:\.\d+)?)\s*的\s*(\d+(?:\.\d+)?)\s*%", text)
+    if m:
+        ji = float(m.group(1))
+        bai = float(m.group(2))
+        return "%g 的 %g%% = %.4g。" % (ji, bai, ji * bai / 100.0)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[涨降]\s*(?:了)?\s*(\d+(?:\.\d+)?)\s*%", text)
+    if m:
+        ji = float(m.group(1))
+        bai = float(m.group(2))
+        return "%g 涨/降 %g%% = %.4g。" % (ji, bai, ji * (1 + bai / 100.0))
+    return None
+
+
+def _hl_jinzhi(text):
+    """进制：255转成十六进制"""
+    m = re.search(r"(0x[0-9a-fA-F]+|[0-9a-fA-F]+)\s*"
+                  r"(?:转|换|变|写)\s*(?:换)?(?:成|为)?\s*"
+                  r"(十六进制|16进制|十进制|10进制|八进制|8进制|二进制|2进制)", text)
+    if not m:
+        return None
+    yuan = m.group(1)
+    mu = m.group(2)
+    if "十六" in mu or "16" in mu:
+        ji = 16
+    elif "十" in mu or "10" in mu:
+        ji = 10
+    elif "八" in mu or "8" in mu:
+        ji = 8
+    else:
+        ji = 2
+    try:
+        if yuan.lower().startswith("0x"):
+            zhi = int(yuan, 16)
+        elif re.search(r"[a-fA-F]", yuan):
+            zhi = int(yuan, 16)
+        else:
+            zhi = int(yuan, 10)
+    except Exception:
+        return None
+    if ji == 10:
+        jieguo = str(zhi)
+    elif ji == 16:
+        jieguo = format(zhi, "X")
+    elif ji == 8:
+        jieguo = format(zhi, "o")
+    else:
+        jieguo = format(zhi, "b")
+    return "%s 转成%s是 %s。" % (yuan, mu, jieguo)
+
+
+_HL_QIAN = (
+    ("美元汇率", "hui"), ("汇率换算", "hui"), ("汇率", "hui"),
+    ("单位换算", "dan"), ("单位", "dan"),
+    ("百分比", "bai"), ("打折", "bai"),
+    ("进制转换", "jin"), ("进制", "jin"),
+    ("日期差", "ri"), ("日期", "ri"),
+    ("亲戚称谓", "qin"), ("称谓", "qin"),
+)
+
+
+def _hl_qian_dan(sheng):
+    """单位换算 5 公里 米"""
+    m = re.match(r"\s*(-?\d+(?:\.\d+)?)\s*([^\s]+)\s*(?:到|换成|等于)?\s*([^\s]*)", sheng)
+    if not m:
+        return "格式：单位换算 5 公里 米（数量 原单位 目标单位）"
+    zhi = float(m.group(1))
+    lai_ming, qu_ming = m.group(2), (m.group(3) or "")
+    # 温度不是乘系数，交给专门的温度分支
+    if "摄氏" in lai_ming or "华氏" in lai_ming:
+        if not qu_ming:
+            return "温度要写成「30 摄氏度 华氏度」。"
+        return _hl_danwei_huansuan("%g%s等于多少%s" % (zhi, lai_ming, qu_ming))
+    lai = _hl_danwei(lai_ming)
+    if lai is None:
+        return "认不出「%s」这个单位。能用的有：公里/米/厘米/斤/千克/吨/GB/MB/小时/分钟…" % lai_ming
+    if not qu_ming:
+        return "%g %s = %s。" % (zhi, lai_ming, _hl_liang_ming(lai[0], zhi * lai[1]))
+    qu = _hl_danwei(qu_ming)
+    if qu is None:
+        return "认不出「%s」这个单位。" % qu_ming
+    if lai[0] != qu[0]:
+        return "「%s」和「%s」不是同一类，换不了。" % (lai_ming, qu_ming)
+    return "%g %s = %.4g %s。" % (zhi, lai_ming, zhi * lai[1] / qu[1], qu_ming)
+
+
+def _hl_qian(qian, sheng):
+    """处理「前缀 + 用户输入」这种格式。
+
+    功能页点卡片会往输入框里填「美元汇率：」，用户在后面补数字。
+    这里把前缀剥掉，剩下的交给对应的解析器；没填东西就给一句格式提示。
+    """
+    sheng = (sheng or "").strip(" ：:，,、")
+    lei = ""
+    for q, l in _HL_QIAN:
+        if qian.startswith(q):
+            lei = l
+            break
+    if not sheng:
+        tishi = {
+            "hui": "金额，比如 100",
+            "dan": "数量 原单位 目标单位，比如 5 公里 米",
+            "bai": "比如 200 打8折 或 200 的 15%",
+            "jin": "比如 255 十六进制",
+            "ri": "比如 3月5日 4月2日",
+            "qin": "比如 爸爸的姐姐",
+        }
+        return "（在后面填：%s）" % tishi.get(lei, "数值")
+
+    if lei == "hui":
+        m = re.search(r"(\d+(?:\.\d+)?)", sheng)
+        if not m:
+            return "美元汇率要填个数字，比如 100。"
+        shu = float(m.group(1))
+        return "%.2f 美元 ≈ %.2f 人民币。离线参考汇率：1 美元 ≈ 7.10，实际以银行牌价为准。" % (
+            shu, shu * _HL_BILV["美元"])
+    if lei == "dan":
+        return _hl_qian_dan(sheng)
+    if lei == "bai":
+        return _hl_baifenbi(sheng.replace(" ", "")) or "百分比要写成「200 打8折」或「200 的 15%」。"
+    if lei == "jin":
+        m = re.match(r"\s*([0-9a-fA-Fx]+)\s*([^\s]+)", sheng)
+        if not m:
+            return "进制要写成「255 十六进制」或「ff 十进制」。"
+        return _hl_jinzhi("%s转成%s" % (m.group(1), m.group(2))) \
+            or "进制要写成「255 十六进制」或「ff 十进制」。"
+    if lei == "ri":
+        m = re.search(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?\s*(?:到|至|-|~)?\s*"
+                      r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?", sheng)
+        if not m:
+            return "日期差要写成「3月5日 4月2日」。"
+        return _hl_riqi("%s月%s日到%s月%s日" % m.groups())
+    if lei == "qin":
+        return _hl_qinqi(sheng + "叫什么") or "称谓要写成「爸爸的姐姐」这样。"
+    return None
+
+
+def huansuan(text):
+    """六类换算总入口。命中返回一句人话，没命中返回 None。"""
+    if not text:
+        return None
+    t = text.strip()
+
+    # 先看是不是「前缀 + 参数」的写法（功能页卡片填进来的就是这种）
+    for q, _l in _HL_QIAN:
+        if t.startswith(q):
+            return _hl_qian(q, t[len(q):])
+    # 顺序有讲究：先挑特征最强的，避免「5公里」被当成日期或百分比
+    for fn in (_hl_jinzhi, _hl_qinqi, _hl_riqi, _hl_bilv,
+               _hl_danwei_huansuan, _hl_baifenbi):
+        try:
+            hui = fn(t)
+        except Exception:
+            hui = None
+        if hui:
+            return hui
+    return None
+
+
+def shuohua(text, qingxu=None):
+    """路由：把用户的话分派给合适的处理者，返回要说的那句话
+
+    qingxu 只给闲聊层用（问“你开心吗”要照实回答），工具层完全不需要它。
+    """
+    global ZUIJIN_LAIYUAN, ZUIJIN_MEI_DA
+    ZUIJIN_LAIYUAN = "gongju"
+    ZUIJIN_MEI_DA = False
+
+    # 空文本：正常界面进不来（输入框空着发不出去），但生成函数不能因此抛异常
+    if not text or not text.strip():
+        ZUIJIN_LAIYUAN = "xianliao"
+        return random.choice([
+            "我这边空着，等你说。",
+            "没听到你说什么，再来一次？",
+        ])
+
+    text = _gui_kou_yu(text)          # 「晓得/咋/啥」先换成程序认识的说法
+
+    if is_time_question(text):
+        return look_time(text)
+
+    if is_weather_question(text):
+        return cha_tianqi(text)
+
+    if is_joke_question(text):
+        return tell_joke(text)
+
+    if is_food_question(text):
+        return tui_jian_meishi(text)
+
+    if is_wangzhe_question(text):
+        return jiang_wangzhe(text)
+
+    you_yitu = is_calc_intent(text)
+    if is_calc_question(text):
+        return calculate(text)
+
+    # 【换算】汇率 / 亲戚称谓 / 单位 / 日期差 / 百分比 / 进制
+    # 放在算数之后：纯算式先给算数，剩下的再试换算，互不抢
+    huan = huansuan(text)
+    if huan:
+        return huan
+
+    # 用户明显想算（半句算式 / 说了“算一下”）但没算出来 —— 给提示，别丢给大模型乱答
+    if you_yitu:
+        _, _, cuowu = tiqu_suanshi(text)
+        liyou = cuowu if cuowu else "算式写得不完整"
+        return "这个式子算不了：%s。换个写法试试？比如 3+5、12*8、(3+4)*2" % liyou
+
+    # ⑩【安全】危机句最先处理，且独立于所有话题匹配。
+    # 不能等 _pipei_huati：那套「最长词胜出」会把「我想消失一段时间」
+    # 判给「时间」组，回一句「回忆这东西…」，这在用户说要消失的时候是灾难。
+    wei = _wei_ji(text)
+    if wei:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return wei
+
+    # ⑨【本轮新增】具体信息问句：「食堂在哪」「几点上课」「作业是啥」。
+    # 这些问的是"你身边某件具体的事"。程序看不到课表、看不到校园、看不到成绩，
+    # 硬答只会答非所问 —— 实测原来被三层轮流抢走：
+    #   食堂在哪 -> 兜底「嗯，我在听」（敷衍）
+    #   几点上课 -> 情绪层「辛苦了，记得给自己留点空」（完全不搭）
+    #   考试时间 -> 学习组「看你问的是哪种难」
+    # 所以单独接：老实说看不到 + 给一个能立刻做的小动作 + 把话头递回去。
+    # ⑨之一【本轮新增】问我本人：「你怕黑吗」「你会累吗」「你叫什么名字」。
+    # 必须排在具体信息层之前 —— 「你叫什么名字」会被那层的「名字」组接成
+    # 「你的密码我不该知道」，问的是我，答的是你。
+    wo = _wen_wo(text)
+    if wo:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return wo
+
+    # ⑨之二【本轮新增】日常感受分享：「晚霞好看」「外面好冷」「地铁上人好多」。
+    # 这些没有问号也不问事，但会被话题层/天气层抢走：
+    #   外面好冷  -> 天气组「天气一变人就容易犯懒」（在讲道理，没在听你说话）
+    #   地铁上人好多 -> 兜底「嗯，我在听」
+    # 判据交给 _fenxiang：情绪为负不抢（「我好累」要留给情绪层）。
+    fen = _fenxiang(text)
+    if fen and not any(k in text for k in ("吗", "？", "?", "呢", "怎么", "为什么", "多少")):
+        ZUIJIN_LAIYUAN = "xianliao"
+        return fen
+
+    # ⑨之二半【本轮新增】自我否定：「我真的好笨」「我是不是很差」。
+    # 原来抽词抽出「真好笨」再套兜底模板，回一句「「真好笨」啊，你是从哪件事想到的」
+    # —— 人家在自我怀疑，你在复读他的词。这类必须先接住人。
+    zi = _zi_wo_fou_ding(text)
+    if zi:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return zi
+
+    # ⑨之一半【本轮新增】能力型问句：「你会游泳吗」「你能看见我吗」。
+    # 问的是"我到底会不会"，原来是抽成「会游泳」再套定义模板，答成
+    # 「「会游泳」这事一句话说不完…你自己更偏哪一边」—— 完全没回答。
+    neng = _wen_neng_li(text)
+    if neng:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return neng
+
+    ju = _ju_ti_wen(text)
+    if ju:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return ju
+
+    # ⑨之三【本轮新增】报喜：「我考上了」「今天找到工作了」。
+    # 必须抢在话题层前面 —— 「工作」那组会回「上班累的不是活，是人际」，
+    # 人家在报喜，你在讲累，落差太大。
+    xi = _xi_shi(text)
+    if xi:
+        ZUIJIN_LAIYUAN = "xianliao"
+        return xi
