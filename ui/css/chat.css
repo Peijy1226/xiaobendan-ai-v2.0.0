@@ -303,3 +303,72 @@
   z-index: 0;
   pointer-events: none;
 }
+
+/* ---- 字色：旧版是深底配深字（MAO_TA_WEN / MAO_WO_WEN）----
+   这一条必须写在两套之前，否则会继承 body 的浅色 #eaf2fb，
+   白字压浅灰气泡 = 看不清。透光那套单独覆盖成浅字。 */
+.qi-pao.mao.ta,
+.qi-pao.yuan.ta { color: var(--mao-ta-wen); }     /* #243040 */
+
+.qi-pao.mao.wo,
+.qi-pao.yuan.wo { color: var(--mao-wo-wen); }     /* #3a2410 */
+
+/* ============================================================================
+   ① 猫耳
+   旧版（6971-7041 行）：
+     耳朵：底边宽 26px、耳高 14px（QIPAO_ER），6 点收弧的圆钝形，带内耳
+     身子：竖向渐变 + 圆角蒙版
+     柔光：顶部 45% 铺 34/255 白，模糊 2px
+     描边：140/255，1.4px
+     爪子：椭圆 18×11，圆心在身子下沿往上 1.5px，描边 130/255
+   ========================================================================== */
+.qi-pao.mao .qp-shen {
+  background: linear-gradient(180deg, #ebb17b 0%, #d5975d 100%);
+  border: 1.4px solid rgba(200, 129, 63, 0.55);          /* 140/255 */
+  box-shadow: 0 3px 3.2px rgba(0, 0, 0, 0.26);           /* 66/255 */
+  overflow: hidden;
+}
+
+/* 顶部柔光：单独一层，才能和渐变叠加 */
+.qi-pao.mao .qp-shen::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 2px;
+  height: 45%;
+  background: rgba(255, 255, 255, 0.135);                /* 34/255 */
+  border-radius: 11px;
+  filter: blur(2px);
+}
+
+/* 耳朵：旧版是 6 个控制点连成的多边形（不是圆角矩形）。
+   把 qipao_tu() 里的公式代进 gao=14 算出来的真实坐标：
+     底边左 (-14.28, 0) → (-8.12, -8.12) → 耳尖内侧 (-0.84, -13.72)
+     → 耳尖外侧 (3.92, -13.86) → (7.84, -7.84) → 底边右 (13.72, 0)
+   耳尖向内偏（fan=+1），底边 28px、高 14px。
+   CSS 的 border-radius 只能做"半圆顶"，和这个形状差得远。 */
+.qi-pao.mao .qp-er {
+  /* 旧版实测：耳朵图 26×14，底边正好落在气泡身子上沿。
+     但身子有 1.4px 描边盖在上面，所以视觉高度约 12.6px ——
+     这里 top 取 -12.5，让底边被身子描边压住，接缝看不出来。 */
+  width: 26px;
+  height: 14px;
+  top: -12.5px;
+  overflow: visible;
+}
+
+/* 耳朵位置：旧版在气泡宽度的 20% 与 80% 处 */
+.qi-pao.mao .qp-er.zuo { left: 20%; margin-left: -13px; }
+.qi-pao.mao .qp-er.you { left: 80%; margin-left: -13px; }
+
+/* 橘猫耳朵 */
+.qi-pao.mao.wo .qp-er .er-wai {
+  fill: #ebb17b;
+  stroke: rgba(200, 129, 63, 0.55);
+  stroke-width: 1.4;
+}
+
+/* 灰猫耳朵 */
+.qi-pao.mao.ta .qp-er .er-wai {
+  fill: #e3e7eb;
