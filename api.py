@@ -544,3 +544,159 @@ class Qiao:
         try:
             if self._chuang is not None:
                 self._chuang.destroy()
+        except Exception as e:
+            print("[api] 关闭失败 %s" % e)
+        return True
+
+    # ══════════════════════════════════════════════════════════════════
+    #  五 · 功能页 13 项
+    #      ②识图 ③写一篇 ④整理助手 ⑤打赏 ⑥壁纸 ⑩记忆 ⑨灵光 ⑧个性化
+    # ══════════════════════════════════════════════════════════════════
+
+    # ---------- ② 识图 ----------
+    def xuan_tu(self):
+        """弹系统文件对话框选一张图，返回 {ok, lu, url, ming, w, h}
+
+        【两套路径】lu 给 Python 侧识图用（本地绝对路径），
+        url 给前端 <img> 用（http 服务相对路径）——
+        因为它们不是一回事：浏览器读不到 C 盘绝对路径，Python 也读不了 http URL。
+        """
+        import shutil
+        import time as _t
+        try:
+            r = self._chuang.create_file_dialog(
+                webview.FileDialog.OPEN, allow_multiple=False,
+                file_types=('图片 (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.tif;*.tiff)',
+                            '所有文件 (*.*)'))
+        except Exception as e:
+            return {"ok": False, "cuo": "打不开文件对话框：%s" % e}
+        if not r:
+            return {"ok": False, "cuo": ""}          # 用户取消，不算错
+        lu = r[0]
+        try:
+            from PIL import Image
+            im = Image.open(lu)
+            w, h = im.size
+        except Exception as e:
+            return {"ok": False, "cuo": "读不了这张图：%s" % e}
+
+        # 复制到 ui/识图/ 下，前端才取得到（http 服务只能访问 ui/ 里的东西）
+        mu = os.path.join(luoji.DIR, "识图")
+        try:
+            os.makedirs(mu, exist_ok=True)
+            ming = "yt_%d%s" % (int(_t.time() * 1000),
+                                os.path.splitext(lu)[1].lower())
+            dst = os.path.join(mu, ming)
+            shutil.copy2(lu, dst)
+        except Exception as e:
+            return {"ok": False, "cuo": "复制图片失败：%s" % e}
+
+        return {"ok": True, "lu": dst, "url": "识图/" + ming,
+                "ming": os.path.basename(lu), "w": w, "h": h}
+
+    def shi_tu(self, zenme, lu):
+        """识图。zenme = 提字 / 认人 / 认物 / 看穿搭
+
+        dev 版优先走多模态大模型：它能看懂画面，说得出"这个人在做什么、
+        穿什么颜色"，本地模型只会画框和认类别。
+        没有钥匙 / 没网 / 大模型挂了，才退本地三个模型（RapidOCR + YuNet + YOLOX）。
+        """
+        import cv2
+        import numpy as np
+        # OpenCV 在 Windows 上读不了中文路径，统一走 imdecode
+        try:
+            buf = np.fromfile(lu, dtype=np.uint8)
+            im = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+        except Exception as e:
+            return {"ok": False, "cuo": "读不了图：%s" % e}
+        if im is None:
+            return {"ok": False, "cuo": "这张图打不开（格式不支持或已损坏）"}
+
+        # ---- 先试大模型 ----
+        # 提字和看穿搭靠大模型就够了（它读字比 OCR 会断行，看穿搭本地根本不会说人话）。
+        # 认人 / 认物不一样：需要精确的框坐标，大模型给不了 ——
+        # 所以那两项仍走本地出框，只在末尾附一句大模型的描述（有钥匙才有）。
+        if zenme in ("提字", "看穿搭"):
+            wen = self._kan_tu_llm(lu, zenme)
+            if wen:
+                return {"ok": True, "wen": wen, "kuang": [], "laiyuan": "联网大模型"}
+
+        # ---- 本地 ----
+        if zenme == "提字":
+            try:
+                jieguo, cuo = shitu.tiqu_wenzi(im)
+            except Exception as e:
+                return {"ok": False, "cuo": "提字失败：%s" % e}
+            if cuo:
+                return {"ok": False, "cuo": cuo}
+            wen = []
+            for kuang, zi, fen in jieguo:
+                if zi.strip():
+                    wen.append(zi.strip())
+            if not wen:
+                return {"ok": True, "wen": "（这张图里没认出文字）",
+                        "kuang": [], "laiyuan": "本地 RapidOCR"}
+            return {"ok": True, "wen": "\n".join(wen), "kuang": [],
+                    "laiyuan": "本地 RapidOCR"}
+
+        if zenme == "认人":
+            try:
+                kuang, cuo = shitu.zhao_renlian(im)
+            except Exception as e:
+                return {"ok": False, "cuo": "认人失败：%s" % e}
+            if cuo:
+                return {"ok": False, "cuo": cuo}
+            if not kuang:
+                return {"ok": True, "wen": "（没找到人脸）", "kuang": [],
+                        "laiyuan": "本地 YuNet"}
+            hua = [{"x": int(a), "y": int(b), "w": int(c), "h": int(d),
+                    "ming": "人脸 %.0f%%" % (f * 100), "ren": True}
+                   for a, b, c, d, f in kuang]
+            wen = "找到 %d 张脸。" % len(kuang)
+            buchong = self._kan_tu_llm(lu, "描述")
+            if buchong:
+                wen += "\n\n" + buchong
+                return {"ok": True, "wen": wen, "kuang": hua,
+                        "laiyuan": "本地 YuNet + 大模型描述"}
+            return {"ok": True, "wen": wen, "kuang": hua,
+                    "laiyuan": "本地 YuNet"}
+
+        if zenme == "认物":
+            try:
+                kuang, cuo = shitu.zhao_wuti(im)
+            except Exception as e:
+                return {"ok": False, "cuo": "认物失败：%s" % e}
+            if cuo:
+                return {"ok": False, "cuo": cuo}
+            if not kuang:
+                return {"ok": True,
+                        "wen": "（没认出东西。可以试试主体更清楚的图）",
+                        "kuang": [], "laiyuan": "本地 YOLOX"}
+            hua, ming = [], []
+            for a, b, c, d, lei, f in kuang:
+                zw = shitu._zhongwen(lei)
+                ming.append("%s %.0f%%" % (zw, f * 100))
+                hua.append({"x": int(a), "y": int(b), "w": int(c), "h": int(d),
+                            "ming": zw, "ren": lei == "person"})
+            wen = "认出 %d 样：\n· %s" % (len(hua), "\n· ".join(ming))
+            buchong = self._kan_tu_llm(lu, "描述")
+            if buchong:
+                wen += "\n\n" + buchong
+                return {"ok": True, "wen": wen, "kuang": hua,
+                        "laiyuan": "本地 YOLOX + 大模型描述"}
+            return {"ok": True, "wen": wen, "kuang": hua,
+                    "laiyuan": "本地 YOLOX"}
+
+        if zenme == "看穿搭":
+            # 【必须先认出人和物，再把框交给它】
+            # 第一版传了三个 None，miaoshu_chuanda 一看 ren_wu 是空就直接
+            # 返回空列表 —— 于是"看不出什么"。它不是自己会找人的。
+            try:
+                lian, _ = shitu.zhao_renlian(im)
+                wuti, _ = shitu.zhao_wuti(im)
+            except Exception as e:
+                return {"ok": False, "cuo": "先认人认物时失败：%s" % e}
+
+            # wuti 是 6 元组 (x,y,w,h,类别,分数)，只挑 person
+            ren = [(int(a), int(b), int(a + c), int(b + d), "person", f)
+                   for a, b, c, d, lei, f in (wuti or []) if lei == "person"]

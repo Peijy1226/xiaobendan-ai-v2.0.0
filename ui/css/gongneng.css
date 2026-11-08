@@ -681,3 +681,371 @@
   border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: all 160ms ease;
+}
+
+.gn-bz:hover {
+  border-color: rgba(127, 196, 255, 0.50);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+}
+
+.gn-bz.on {
+  border-color: rgba(127, 196, 255, 0.88);
+  box-shadow:
+    0 0 0 2px rgba(127, 196, 255, 0.22),
+    0 4px 16px rgba(60, 130, 210, 0.26);
+}
+
+.gn-bz img,
+.gn-bz video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gn-bz .tik {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 7px;
+  font-size: 11px;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.76));
+}
+
+/* ============================================================================
+   记忆
+   ============================================================================ */
+.gn-jiyi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.gn-jy {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.75;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(255, 255, 255, 0.068);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.gn-jy .biao {
+  flex: 0 0 56px;
+  color: #ffd77a;
+  font-weight: 500;
+}
+
+.gn-jy .zhi {
+  color: #e4eefa;
+  word-break: break-all;
+}
+
+/* ============================================================================
+   空态 / 加载
+   ============================================================================ */
+.gn-kong {
+  padding: 30px 0;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(170, 188, 206, 0.48);
+  letter-spacing: 0.2px;
+}
+
+.gn-mang {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  vertical-align: -2px;
+  border: 2px solid rgba(127, 196, 255, 0.24);
+  border-top-color: rgba(127, 196, 255, 0.92);
+  border-radius: 50%;
+  animation: gn-zhuan 720ms linear infinite;
+}
+
+@keyframes gn-zhuan {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   ⑧ 个性化：气泡预览 + 双头像
+   ========================================================================== */
+
+/* ---- 三个气泡样式预览块 ---- */
+#gn-yang-shi {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 11px;
+  margin-bottom: 6px;
+}
+
+.gn-yang {
+  padding: 12px 10px 9px;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: center;
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.055) 0%,
+    rgba(255, 255, 255, 0.018) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: all 160ms cubic-bezier(.2, .8, .3, 1);
+}
+
+.gn-yang:hover {
+  border-color: rgba(127, 196, 255, 0.42);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.11),
+    0 5px 18px rgba(0, 0, 0, 0.26);
+}
+
+.gn-yang.on {
+  border-color: rgba(127, 196, 255, 0.85);
+  background: linear-gradient(
+    160deg,
+    rgba(127, 196, 255, 0.14) 0%,
+    rgba(127, 196, 255, 0.04) 100%
+  );
+  box-shadow:
+    0 0 0 2px rgba(127, 196, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 4px 16px rgba(60, 130, 210, 0.20);
+}
+
+.gn-yang-ming {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(196, 210, 226, 0.70);
+}
+
+.gn-yang.on .gn-yang-ming {
+  color: #b6ddff;
+}
+
+/* 预览舞台：小头像 + 小气泡 */
+.gn-yu {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  height: 46px;
+  padding: 4px 2px 0;
+}
+
+.gn-yu-tou {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #e8eef6 0%, #c6d0dc 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.gn-yu-pao {
+  flex: 1 1 auto;
+  height: 26px;
+  position: relative;
+  border-radius: 0;
+}
+
+/* 猫耳预览：圆身 + 两只小三角 */
+.gn-yu.mao .gn-yu-pao {
+  margin-top: 7px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #e3e7eb 0%, #cdd1d5 100%);
+  border: 1.2px solid rgba(182, 190, 200, 0.7);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.24);
+}
+
+.gn-yu.mao .gn-yu-pao::before,
+.gn-yu.mao .gn-yu-pao::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  width: 11px;
+  height: 8px;
+  background: linear-gradient(180deg, #e6eaee 0%, #d2d6da 100%);
+  border: 1.2px solid rgba(182, 190, 200, 0.7);
+  border-bottom: none;
+}
+
+.gn-yu.mao .gn-yu-pao::before {
+  left: 8px;
+  border-radius: 6px 6px 0 0;
+  transform: rotate(-12deg);
+}
+
+.gn-yu.mao .gn-yu-pao::after {
+  right: 8px;
+  border-radius: 6px 6px 0 0;
+  transform: rotate(12deg);
+}
+
+/* 圆角预览 */
+.gn-yu.yuan .gn-yu-pao {
+  border-radius: 9px;
+  background: linear-gradient(180deg, #e1e5ea 0%, #d4d8dc 100%);
+  border: 1.2px solid rgba(107, 118, 130, 0.42);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.24);
+}
+
+/* 透光预览：半透明 + 描边，模拟玻璃 */
+.gn-yu.tou .gn-yu-pao {
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1.2px solid rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 4px rgba(0, 0, 0, 0.16);
+}
+
+/* ---- 双头像卡 ---- */
+#gn-tou-xiang {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.gn-tou-ka {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.gn-tou-yuan {
+  flex: 0 0 58px;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(160deg, #e8eef6 0%, #c6d0dc 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.22);
+}
+
+.gn-tou-yuan img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gn-tou-yuan span {
+  font-size: 17px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.gn-tou-you {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gn-tou-biao {
+  font-size: 13.5px;
+  color: #eaf2fb;
+  margin-bottom: 3px;
+}
+
+.gn-tou-zhu {
+  font-size: 11.5px;
+  color: rgba(180, 196, 213, 0.55);
+  margin-bottom: 8px;
+}
+
+.gn-tou-niu {
+  display: flex;
+  gap: 8px;
+}
+
+.gn-tou-niu .gn-an {
+  height: 29px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
+
+/* ============================================================================
+   ⑧b 功能页通透度滑块
+   ========================================================================== */
+.gn-boli {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 16px;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.gn-hua-hang {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.gn-hua-ming {
+  flex: 0 0 62px;
+  font-size: 12.5px;
+  color: rgba(196, 210, 226, 0.72);
+}
+
+.gn-hua {
+  flex: 1 1 auto;
+  height: 22px;
+  accent-color: #7fc4ff;
+  cursor: pointer;
+  background: transparent;
+}
+
+.gn-hua-zhi {
+  flex: 0 0 56px;
+  text-align: right;
+  font-size: 12px;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  color: rgba(180, 210, 240, 0.86);
+}
+
+.gn-hua-niu {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gn-hua-niu .gn-an {
+  height: 30px;
+  padding: 0 13px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
