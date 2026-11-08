@@ -567,3 +567,254 @@
     父.appendChild(行(滑));
     父.appendChild(样);
     父.appendChild(说明('范围 12 到 20，默认 15（和旧版 Tk 11 点一个大小）。'));
+
+    var 钮 = 造('div', 'gn-hang');
+    钮.style.marginTop = '14px';
+    钮.appendChild(按钮('恢复 15', function () {
+      滑.value = '15';
+      样.style.fontSize = '15px';
+      设字号(15);
+      localStorage.setItem('ziti', '15');
+    }, 'ci'));
+    父.appendChild(钮);
+  };
+
+  function 设字号(v) {
+    document.documentElement.style.setProperty('--zt', v + 'px');
+    document.documentElement.style.setProperty('--hang', Math.round(v / 15 * 20) + 'px');
+  }
+
+  /* ================================================================
+     ⑧ 个性化
+     ================================================================ */
+  页.gexinghua = function (父) {
+    父.appendChild(说明('三样：气泡样式、她的头像、你的头像。改完立刻生效，不用重启。'));
+
+    /* ---------- ① 气泡样式：三个可点的预览块 ---------- */
+    父.appendChild(造('div', 'gn-pian', '气泡样式'));
+    var 样式盒 = 造('div');
+    样式盒.id = 'gn-yang-shi';
+    父.appendChild(样式盒);
+
+    var 名 = ['猫耳', '圆角', '透光'];
+    var 当前 = LiaoTian.取样式();
+
+    function 画样式() {
+      样式盒.innerHTML = '';
+      名.forEach(function (n, i) {
+        var d = 造('div', 'gn-yang' + (i === 当前 ? ' on' : ''));
+        d.dataset.i = i;
+        /* 预览用小尺寸复刻三套真样式：猫耳有耳朵、圆角是圆块、透光是半透 */
+        d.innerHTML =
+          '<div class="gn-yu ' + ['mao', 'yuan', 'tou'][i] + '">' +
+          '<span class="gn-yu-tou"></span>' +
+          '<span class="gn-yu-pao"></span>' +
+          '</div>' +
+          '<span class="gn-yang-ming">' + n + '</span>';
+        d.addEventListener('click', function () {
+          当前 = i;
+          LiaoTian.换样式(i);
+          var 全 = document.querySelectorAll('#yang-shi button');
+          for (var k = 0; k < 全.length; k++) {
+            全[k].classList.toggle('on', parseInt(全[k].dataset.yang, 10) === i);
+          }
+          画样式();
+        });
+        样式盒.appendChild(d);
+      });
+    }
+    画样式();
+
+    /* ---------- ② 双头像 ---------- */
+    var 头像标题 = 造('div', 'gn-pian', '头像');
+    头像标题.style.marginTop = '18px';
+    父.appendChild(头像标题);
+    var 头盒 = 造('div');
+    头盒.id = 'gn-tou-xiang';
+    父.appendChild(头盒);
+
+    function 画头像() {
+      Promise.resolve(Qiao.头像状态()).then(function (r) {
+        r = r || {};
+        头盒.innerHTML = '';
+        [['ta', '她的', '她说话时左边那个'],
+         ['wo', '你的', '你说话时右边那个']].forEach(function (x) {
+          var shui = x[0], biao = x[1], zhu = x[2];
+          var st = r[shui] || { you: false, url: '' };
+
+          var d = 造('div', 'gn-tou-ka');
+          var 图 = 造('div', 'gn-tou-yuan');
+          图.innerHTML = st.you && st.url
+            ? '<img src="' + st.url + '" alt="">'
+            : '<span>' + (shui === 'ta' ? '她' : '我') + '</span>';
+          d.appendChild(图);
+
+          var 右 = 造('div', 'gn-tou-you');
+          右.appendChild(造('div', 'gn-tou-biao', biao + '头像'));
+          右.appendChild(造('div', 'gn-tou-zhu', zhu));
+          var 钮 = 造('div', 'gn-tou-niu');
+          钮.appendChild(按钮('换一张', function () {
+            打开选图(shui);
+          }));
+          if (st.you) {
+            钮.appendChild(按钮('恢复默认', function () {
+              Promise.resolve(Qiao.删头像(shui)).then(function () {
+                画头像();
+                刷新聊天头像();
+              });
+            }, 'ci'));
+          }
+          右.appendChild(钮);
+          d.appendChild(右);
+          头盒.appendChild(d);
+        });
+      });
+    }
+
+    function 打开选图(shui) {
+      Promise.resolve(Qiao.选头像(shui)).then(function (r) {
+        if (!r || !r.ok) {
+          if (r && r.cuo) 结果(父, r.cuo, 'ruo');
+          return;
+        }
+        画头像();
+        刷新聊天头像();
+        结果(父, '换好了。聊天气泡里的头像也一起变了。');
+      });
+    }
+
+    /* 让聊天区已经画出来的头像也立刻换 —— 不刷新的话要等下一句才变 */
+    function 刷新聊天头像() {
+      Promise.resolve(Qiao.头像状态()).then(function (r) {
+        if (window.LiaoTian && LiaoTian.刷头像) LiaoTian.刷头像(r);
+      });
+    }
+
+    画头像();
+    父.appendChild(说明(
+      '建议用 1:1 的方形图，长图会自动居中裁方。' +
+      '存成 256×256 放在 <code>ui/个性化/</code>。'));
+
+    /* ---------- ③ 功能页的通透度（可调模糊） ---------- */
+    var 玻璃标题 = 造('div', 'gn-pian', '功能页的通透度');
+    玻璃标题.style.marginTop = '20px';
+    父.appendChild(玻璃标题);
+
+    父.appendChild(说明(
+      '调的是点开「☰ 功能」时那块玻璃面板。<b>拖动立刻生效</b> —— ' +
+      '先打开一次功能页，再回来拖滑块，能直接看见变化。'));
+
+    var 玻璃盒 = 造('div', 'gn-boli');
+    父.appendChild(玻璃盒);
+
+    /* 四个滑块：模糊 / 饱和 / 亮度 / 底色浓度
+       每个都是 0~100 的百分比，存到 Python 那边再换成真实单位。 */
+    /* 【单位换算，别搞混】
+       滑块统一 0~100（好拖），后端存的是真实单位：
+         mo    0~80 px
+         bao   100~260（saturate 的百分比）
+         liang 70~140（brightness 的百分比）
+         di    0~80（底色的百分之一，19 = 0.19）
+       所以三个方向各有一对换算，写错了就会"滑到底却看不出来"。 */
+    var 条 = [
+      { jian: 'mo', ming: '模糊',
+        bian: function (v) { return Math.round(v * 0.8) + 'px'; },
+        去: function (v) { return Math.round(v * 0.8); },
+        回: function (v) { return Math.min(100, Math.round(v / 0.8)); } },
+      { jian: 'bao', ming: '颜色浓度',
+        bian: function (v) { return (1 + v / 100).toFixed(2); },
+        去: function (v) { return 100 + Math.round(v); },
+        回: function (v) { return Math.max(0, Math.round(v) - 100); } },
+      { jian: 'liang', ming: '亮度',
+        bian: function (v) { return (0.70 + v / 100).toFixed(2); },
+        去: function (v) { return 70 + Math.round(v); },
+        回: function (v) { return Math.max(0, Math.round(v) - 70); } },
+      { jian: 'di', ming: '底色厚度',
+        bian: function (v) { return (v / 100).toFixed(2); },
+        去: function (v) { return Math.round(v); },
+        回: function (v) { return Math.round(v); } }
+    ];
+
+    var 默认滑块 = { mo: 28, bao: 75, liang: 42, di: 26 };
+
+    function 去默认(i) { return 条[i].去(默认滑块[条[i].jian]); }
+
+    function 应用到页面(值) {
+      /* 变量挂在 :root 上，功能页面板读的就是它 */
+      var r = document.documentElement.style;
+      r.setProperty('--boli-mo', (值.mo * 0.8) + 'px');
+      r.setProperty('--boli-bao', (1 + 值.bao / 100).toFixed(2));
+      r.setProperty('--boli-liang', (0.70 + 值.liang / 100).toFixed(2));
+      r.setProperty('--boli-di', (值.di / 100).toFixed(2));
+    }
+
+    function 画滑块(值) {
+      玻璃盒.innerHTML = '';
+      条.forEach(function (x) {
+        var hang = 造('div', 'gn-hua-hang');
+        var 左 = 造('span', 'gn-hua-ming', x.ming);
+        var 值文 = 造('span', 'gn-hua-zhi', x.bian(值[x.jian]));
+        var hua = document.createElement('input');
+        hua.type = 'range';
+        hua.min = 0;
+        hua.max = 100;
+        hua.value = 值[x.jian];
+        hua.className = 'gn-hua';
+        hua.addEventListener('input', function () {
+          值[x.jian] = parseInt(hua.value, 10);
+          值文.textContent = x.bian(值[x.jian]);
+          应用到页面(值);
+        });
+        /* 松手才存盘 —— 拖动过程中每帧写文件既慢又没必要 */
+        hua.addEventListener('change', function () {
+          /* 传回去的是「真实单位」，不是滑块位置 */
+          Qiao.存玻璃(
+            条[0].去(值.mo), 条[1].去(值.bao),
+            条[2].去(值.liang), 条[3].去(值.di));
+        });
+        hang.appendChild(左);
+        hang.appendChild(hua);
+        hang.appendChild(值文);
+        玻璃盒.appendChild(hang);
+      });
+
+      var 钮行 = 造('div', 'gn-hua-niu');
+      钮行.appendChild(按钮('打开功能页试试', function () {
+        在开 = true;
+        切换();
+      }, 'ci'));
+      钮行.appendChild(按钮('恢复默认', function () {
+        Promise.resolve(Qiao.重置玻璃()).then(function (r) {
+          if (r && r.ok) {
+            值 = { mo: 默认滑块.mo, bao: 默认滑块.bao,
+                   liang: 默认滑块.liang, di: 默认滑块.di };
+            画滑块(值);
+            应用到页面(值);
+          }
+        });
+      }, 'ci'));
+      玻璃盒.appendChild(钮行);
+    }
+
+    /* 读现有值 → 先套到页面上（这样老用户一进来看到的就是自己上次调的） */
+    Promise.resolve(Qiao.读玻璃()).then(function (v) {
+      var 原始 = {
+        mo: (v && v.mo != null) ? v.mo : 去默认(0),
+        bao: (v && v.bao != null) ? v.bao : 去默认(1),
+        liang: (v && v.liang != null) ? v.liang : 去默认(2),
+        di: (v && v.di != null) ? v.di : 去默认(3)
+      };
+      /* 原始单位 → 滑块位置 */
+      var 值 = {
+        mo: 条[0].回(原始.mo),
+        bao: 条[1].回(原始.bao),
+        liang: 条[2].回(原始.liang),
+        di: 条[3].回(原始.di)
+      };
+      应用到页面(值);
+      画滑块(值);
+    });
+  };
+
+  /* ================================================================
+     ⑨ 灵光（联网）
