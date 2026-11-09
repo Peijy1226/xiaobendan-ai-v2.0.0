@@ -814,3 +814,275 @@ def _zhuse(kuai, qu_se=None, qu_fu=False):
         # 注意通道顺序：tupian 是 cv2 的 BGR，q[:,0] 是 B，不是 R。
         b = (k // 64) * 32 + 16
         g = ((k // 8) % 8) * 32 + 16
+        r = (k % 8) * 32 + 16
+        return (min(255, r), min(255, g), min(255, b))
+    except Exception:
+        return None
+
+
+def _ren_beijing_se(ren):
+    """取人框最外面一圈的主色当"背景色"（人像、证件照、影棚图都靠它）"""
+    try:
+        import numpy as np
+        h, w = ren.shape[:2]
+        t = max(1, int(min(h, w) * 0.04))
+        bian = np.concatenate([
+            ren[0:t, :, :].reshape(-1, 3),
+            ren[h - t:h, :, :].reshape(-1, 3),
+            ren[:, 0:t, :].reshape(-1, 3),
+            ren[:, w - t:w, :].reshape(-1, 3),
+        ])
+        return _zhuse(bian.reshape(1, -1, 3))
+    except Exception:
+        return None
+
+
+def _yanse_ming(rgb):
+    """(r,g,b) → 中文颜色名，带"深/浅"这一层修饰"""
+    if rgb is None:
+        return ""
+    try:
+        import colorsys
+        r, g, b = [max(0, min(255, int(v))) / 255.0 for v in rgb]
+        h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    except Exception:
+        return ""
+    if s < 0.13:                            # 灰阶：靠明度分黑白灰
+        if v >= 0.86:
+            return "白"
+        if v >= 0.55:
+            return "浅灰"
+        if v >= 0.30:
+            return "灰"
+        return "黑"
+    du = h * 360.0
+    if du < 12 or du >= 345:
+        ming = "红"
+    elif du < 26:
+        ming = "棕红"
+    elif du < 42:
+        ming = "橙"
+    elif du < 68:
+        ming = "黄"
+    elif du < 100:
+        ming = "黄绿"
+    elif du < 152:
+        ming = "绿"
+    elif du < 195:
+        ming = "青"
+    elif du < 255:
+        ming = "蓝"
+    elif du < 290:
+        ming = "紫"
+    else:
+        ming = "粉" if s < 0.55 else "紫红"
+    if v < 0.33:
+        return "深" + ming
+    if v > 0.82 and s < 0.45:
+        return "浅" + ming
+    return ming
+
+
+def _qu(kuai, x1, y1, x2, y2, kuan, gao):
+    """按比例裁一小块（比例都是 0~1，越界自动夹住）"""
+    try:
+        a = max(0, min(kuan - 1, int(kuan * x1)))
+        b = max(0, min(gao - 1, int(gao * y1)))
+        c = max(a + 1, min(kuan, int(kuan * x2)))
+        d = max(b + 1, min(gao, int(gao * y2)))
+        return kuai[b:d, a:c]
+    except Exception:
+        return None
+
+
+def _you_bai_chenshan(kuai):
+    """这块区域里有没有"白衬衫"—— 大片高亮、低彩度的像素
+
+    比"取主色再判名字"稳：衬衫常被外套压成一小条 V 领，主色会被外套的
+    深色吃掉；但白色像素的绝对数量是不会骗人的。
+    """
+    try:
+        import numpy as np
+        if kuai is None or getattr(kuai, "size", 0) == 0:
+            return False
+        x = kuai.reshape(-1, 3)
+        if len(x) > 6000:
+            x = x[::max(1, len(x) // 6000)]
+        r_ = x[:, 2].astype(np.int32)
+        g_ = x[:, 1].astype(np.int32)
+        b_ = x[:, 0].astype(np.int32)
+        fu = (r_ > 95) & (g_ > 40) & (b_ > 20) & (r_ > g_) & (r_ > b_) \
+            & ((r_ - g_) > 18)
+        xin = ~fu
+        if int(xin.sum()) < 50:
+            return False
+        mx = x.max(axis=1).astype(np.int32)
+        mn = x.min(axis=1).astype(np.int32)
+        bai = (mn > 150) & ((mx - mn) < 45) & xin
+        return int(bai.sum()) >= max(60, int(int(xin.sum()) * 0.12))
+    except Exception:
+        return False
+
+
+def _lian_zai_kuang(lian, kuang):
+    """在人框里找那张脸（取面积最大的那张）。找不到返回 None。
+
+    为什么要找脸：人体比例是"以头为单位"量的，光靠人框的百分比分区
+    根本对不准 —— 检测框常常比人宽一圈、还往上多出一截，按 0.3~0.55
+    切"躯干"实际切到了下巴。有脸框就能拿"下巴 + 脸高"当尺子。
+    """
+    if not lian or not kuang:
+        return None
+    px1, py1, px2, py2 = kuang
+    zui, zui_mian = None, 0.0
+    for t in lian:
+        try:
+            x, y, w, h = float(t[0]), float(t[1]), float(t[2]), float(t[3])
+        except (TypeError, ValueError, IndexError):
+            continue
+        cx, cy = x + w / 2.0, y + h / 2.0
+        if not (px1 <= cx <= px2 and py1 <= cy <= py2):
+            continue
+        if w * h > zui_mian:
+            zui, zui_mian = (x, y, w, h), w * h
+    return zui
+
+
+def _jiezhi(kuai, x1, y1, x2, y2):
+    """按绝对像素裁一块（越界自动夹住；裁空返回 None）"""
+    try:
+        h, w = kuai.shape[:2]
+        a = max(0, min(w - 1, int(x1)))
+        b = max(0, min(h - 1, int(y1)))
+        c = max(a + 1, min(w, int(x2)))
+        d = max(b + 1, min(h, int(y2)))
+        if c - a < 4 or d - b < 4:
+            return None
+        return kuai[b:d, a:c]
+    except Exception:
+        return None
+
+
+def miaoshu_chuanda(tupian, ren_wu, wuti, lian=None):
+    """给每个识别到的人写一句穿搭描述。返回 (文字列表, 错误说明)
+
+    ren_wu 是 [(x1,y1,x2,y2,标签,分数)]，wuti 是 [(x,y,w,h,类别,分数)]，
+    lian 是 YuNet 的人脸框 —— 有脸时以"脸"为尺子量身体（准），没脸才退回
+    按人框百分比（糙）。
+
+    仍然没有训练过任何"服装分类"模型，所以只做一件事：取各部位主色 → 翻成
+    中文说法。判断不了的写"看不出"，绝不编品牌、材质、款式名。
+    """
+    if not ren_wu:
+        return [], ""
+    try:
+        import numpy as np          # noqa: F401   （_zhuse 里要用）
+    except Exception as e:
+        return [], "缺 numpy，算不了颜色：%s" % e
+    gao, kuan = tupian.shape[:2]
+    lingdai = [(o[0], o[1], o[2], o[3]) for o in (wuti or []) if o[4] == "tie"]
+    out = []
+    for idx, (x1, y1, x2, y2, _biao, _fen) in enumerate(ren_wu, 1):
+        try:
+            bx1 = max(0, int(x1))
+            by1 = max(0, int(y1))
+            bx2 = min(kuan, int(x2))
+            by2 = min(gao, int(y2))
+            if bx2 - bx1 < 12 or by2 - by1 < 20:
+                out.append("%d. 这个人太小了，看不出穿什么。" % idx)
+                continue
+            ren = tupian[by1:by2, bx1:bx2]
+            rh, rw = ren.shape[:2]
+            ju = []
+            # 先估"背景色"，后面每一块取主色都把它剔掉：人框两侧常混进
+            # 大片背景，不剔的话蓝底证件照会把黑西装说成"蓝上装"。
+            bg = _ren_beijing_se(ren)
+
+            lian_kuang = _lian_zai_kuang(lian, (bx1, by1, bx2, by2))
+            if lian_kuang:
+                fx, fy, fw, fh = lian_kuang
+                cx = fx + fw / 2.0                   # 脸的左右中线，分区都对称着来
+                xia_ba = fy + fh                     # 下巴那条线
+                # 以"脸高"为单位往下量（成年人常见比例，取保守值）：
+                #   领口/衬衫  +0.10~0.55 脸高，宽度 0.5 脸宽
+                #   外套/躯干  +0.60~2.00 脸高，宽度 ±1.55 脸宽（肩宽约 2~2.5 脸宽）
+                #   下装       +2.10~3.40 脸高，宽度 ±1.35 脸宽
+                # 宽度必须关于 cx 对称：写成 fx-1.1fw ~ fx+2.1fw 是以"左边缘"
+                # 为基准的，整个人会被整体右移，右边一半取到背景。
+                # 内搭就取"胸口这一片"（含脖子两侧的领口），后面用
+                # "有没有大片白色像素"来判白衬衫，不靠取主色 —— 领带和脖子
+                # 都在中间，取主色必然踩坑
+                nei_kuai = _jiezhi(ren, cx - fw * 0.95 - bx1,
+                                   xia_ba + fh * 0.15 - by1,
+                                   cx + fw * 0.95 - bx1,
+                                   xia_ba + fh * 1.10 - by1)
+                shang_kuai = _jiezhi(ren, cx - fw * 1.55 - bx1,
+                                     xia_ba + fh * 0.60 - by1,
+                                     cx + fw * 1.55 - bx1,
+                                     xia_ba + fh * 2.00 - by1)
+                xia_kuai = _jiezhi(ren, cx - fw * 1.35 - bx1,
+                                   xia_ba + fh * 2.10 - by1,
+                                   cx + fw * 1.35 - bx1,
+                                   xia_ba + fh * 3.40 - by1)
+                # 人小/框偏的时候，按脸推出来的块可能整个越界（裁空）。
+                # 这时候退回"按人框比例"，宁可糙一点也别什么都不说。
+                if shang_kuai is None:
+                    shang_kuai = _qu(ren, 0.10, 0.35, 0.90, 0.60, rw, rh)
+                if nei_kuai is None:
+                    nei_kuai = _qu(ren, 0.35, 0.28, 0.65, 0.45, rw, rh)
+            else:
+                # 没有脸（背影、侧面、太远）：退回人框百分比，只是能用
+                nei_kuai = _qu(ren, 0.40, 0.30, 0.60, 0.40, rw, rh)
+                shang_kuai = _qu(ren, 0.08, 0.40, 0.92, 0.62, rw, rh)
+                xia_kuai = _qu(ren, 0.20, 0.70, 0.80, 0.92, rw, rh)
+
+            # ① 上装 / 外套（剔背景 + 剔肤色：脖子和手最容易混进来）
+            wai = _yanse_ming(_zhuse(shang_kuai, bg, True))
+            # ② 内搭：只判"是不是白衬衫"，不做颜色命名
+            bai_nei = _you_bai_chenshan(nei_kuai)
+
+            if wai and bai_nei:
+                ju.append("%s外套，里面是白衬衫" % wai)
+            elif wai:
+                ju.append("%s上装" % wai)
+            elif bai_nei:
+                ju.append("上身穿白衬衫")
+
+            # ③ 领带：物体检测这一轮已经纠偏过，直接用结果
+            xi = [t for t in lingdai
+                  if bx1 <= t[0] + t[2] / 2 <= bx2
+                  and by1 <= t[1] + t[3] / 2 <= by2]
+            if xi:
+                t = xi[0]
+                t_se = _yanse_ming(_zhuse(_jiezhi(
+                    tupian, t[0], t[1], t[0] + t[2], t[1] + t[3])))
+                ju.append("系着%s领带" % t_se if t_se else "系着领带")
+
+            # ④ 下装：人框有没有被图片下边缘切断
+            xia = ""
+            ru_jing = by2 < gao - 2 and getattr(xia_kuai, "size", 0) > 0
+            if ru_jing:
+                xia = _yanse_ming(_zhuse(xia_kuai, bg))
+                if xia:
+                    ju.append("下装是%s" % xia)
+
+            # ⑤ 整体风格：白衬衫 + 深外套（+ 领带）才说"像正装"，不吹
+            shen_wai = bool(wai) and (wai.startswith("深") or wai == "黑")
+            if bai_nei and shen_wai and xi:
+                ju.append("整体是正装/西装那一路")
+            elif bai_nei and shen_wai:
+                ju.append("看着偏正式")
+            elif bai_nei and wai:
+                ju.append("配色干净，偏休闲正装")
+
+            if not ju:
+                out.append("%d. 这块区域看不出明显的衣服颜色。" % idx)
+            elif not ru_jing:
+                out.append("%d. %s；下半身没入镜。" % (idx, "，".join(ju)))
+            else:
+                out.append("%d. %s。" % (idx, "，".join(ju)))
+        except Exception as e:
+            out.append("%d. 这段没算出来（%s）。" % (idx, e))
+    return out, ""
+
+
