@@ -433,3 +433,58 @@ def _jie_nanodet(fenlei, huikuang, buju, chizi, reg_max=7):
     kuang = huikuang[0].reshape(-1, 4, reg_max + 1)
     kuang = kuang - kuang.max(axis=2, keepdims=True)
     e = np.exp(kuang)
+    p = e / e.sum(axis=2, keepdims=True)
+    juli = (p * np.arange(reg_max + 1)).sum(axis=2) * buju
+    ys, xs = np.meshgrid(np.arange(bian), np.arange(bian))
+    # 网格中心间距为 stride，第一个中心在 stride/2 处
+    zx = (xs.reshape(-1) * buju + 0.5 * (buju - 1))[:, None]
+    zy = (ys.reshape(-1) * buju + 0.5 * (buju - 1))[:, None]
+    x1 = zx - juli[:, 0:1]
+    y1 = zy - juli[:, 1:2]
+    x2 = zx + juli[:, 2:3]
+    y2 = zy + juli[:, 3:4]
+    return np.hstack([x1, y1, x2, y2]), fen.max(axis=1), fen.argmax(axis=1)
+
+
+def _zhengli_tupian(tupian, chizi):
+    """把任意尺寸的图等比缩到 chizi×chizi 的方框里，居中补灰边（不变形）"""
+    import numpy as np
+    import cv2
+    gao, kuan = tupian.shape[:2]
+    suofang = min(chizi / kuan, chizi / gao)
+    xin_kuan, xin_gao = int(round(kuan * suofang)), int(round(gao * suofang))
+    hua = np.full((chizi, chizi, 3), 114, dtype=np.uint8)   # 114 是 YOLO 惯例的灰边
+    shang, zuo = (chizi - xin_gao) // 2, (chizi - xin_kuan) // 2
+    hua[shang:shang + xin_gao, zuo:zuo + xin_kuan] = cv2.resize(tupian, (xin_kuan, xin_gao))
+    return hua, suofang, zuo, shang
+
+
+def _jie_yolox(shuchu, chizi, suofang, zuo, shang, kuan, gao, yuzhi):
+    """把 YOLOX 的 (N, 85) 解成原图上的框
+    YOLOX 的排列：cx cy w h obj cls×80，三个尺度依次拼起来（8/16/32），
+    前 4 列是相对本网格的偏移量，要乘 stride 再加网格坐标才是像素。"""
+    import numpy as np
+    import cv2
+    a = np.asarray(shuchu).reshape(-1, 85)
+    hua_kuang, hua_fen, hua_lei = [], [], []
+
+    idx = 0
+    for buju in (8, 16, 32):
+        g = chizi // buju
+        seg = a[idx:idx + g * g]
+        idx += g * g
+        if len(seg) == 0:
+            continue
+        gy, gx = np.meshgrid(np.arange(g), np.arange(g), indexing="ij")
+        gx = gx.reshape(-1).astype(np.float32)
+        gy = gy.reshape(-1).astype(np.float32)
+
+        fen = seg[:, 4:5] * seg[:, 5:]        # 目标置信度 × 类别分数
+        zuihao = fen.max(axis=1)
+        liu = zuihao > yuzhi
+        if not liu.any():
+            continue
+        s = seg[liu]
+        cx = (s[:, 0] + gx[liu]) * buju
+        cy = (s[:, 1] + gy[liu]) * buju
+        bw = np.exp(s[:, 2]) * buju            # YOLOX 的宽高是 exp() 出来的
