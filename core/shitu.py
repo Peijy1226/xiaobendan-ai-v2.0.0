@@ -488,3 +488,329 @@ def _jie_yolox(shuchu, chizi, suofang, zuo, shang, kuan, gao, yuzhi):
         cx = (s[:, 0] + gx[liu]) * buju
         cy = (s[:, 1] + gy[liu]) * buju
         bw = np.exp(s[:, 2]) * buju            # YOLOX 的宽高是 exp() 出来的
+        bh = np.exp(s[:, 3]) * buju
+        for i in range(len(s)):
+            x1 = (cx[i] - bw[i] / 2 - zuo) / suofang
+            x2 = (cx[i] + bw[i] / 2 - zuo) / suofang
+            y1 = (cy[i] - bh[i] / 2 - shang) / suofang
+            y2 = (cy[i] + bh[i] / 2 - shang) / suofang
+            x1 = max(0.0, min(kuan - 1.0, x1))
+            x2 = max(0.0, min(kuan - 1.0, x2))
+            y1 = max(0.0, min(gao - 1.0, y1))
+            y2 = max(0.0, min(gao - 1.0, y2))
+            if x2 - x1 < 4 or y2 - y1 < 4:
+                continue
+            hua_kuang.append([float(x1), float(y1), float(x2 - x1), float(y2 - y1)])
+            hua_fen.append(float(zuihao[liu][i]))
+            hua_lei.append(int(np.argmax(s[i, 5:])))
+    return hua_kuang, hua_fen, hua_lei
+
+
+def _fangda_kuang(jieguo, bi, kuan, gao):
+    """把"缩小图上算出来的框"按比例换回原图坐标（bi 是缩小时的比例）"""
+    if bi == 1.0 or not jieguo:
+        return jieguo
+    out = []
+    for (x, y, w, h, lei, fen) in jieguo:
+        x, y, w, h = x / bi, y / bi, w / bi, h / bi
+        x = max(0.0, min(kuan - 1.0, x))
+        y = max(0.0, min(gao - 1.0, y))
+        w = min(w, kuan - x)
+        h = min(h, gao - y)
+        if w < 2 or h < 2:
+            continue
+        out.append((x, y, w, h, lei, fen))
+    return out
+
+
+def _hou_chuli(kuang, fen, lei, kuan, gao, yuzhi):
+    """NMS 去重 + 丢掉小目标 + 大件排前面
+    这里做两遍 NMS：
+      · 先按类别各自去重（同类的一个东西只留一个框）
+      · 再跨类去重（同一块地方被认成两种东西时，只留分数高的那个）
+    跨类那一步是治「一个东西报了三遍」的关键。"""
+    import numpy as np
+    import cv2
+    if not kuang:
+        return []
+
+    # 第一遍：同类 NMS
+    by = {}
+    for i, l in enumerate(lei):
+        by.setdefault(l, []).append(i)
+    di_yi = []
+    for l, idxs in by.items():
+        bx = [kuang[i] for i in idxs]
+        sc = [fen[i] for i in idxs]
+        keep = cv2.dnn.NMSBoxes(bx, sc, yuzhi, 0.45)
+        if len(keep) == 0:
+            continue
+        for k in np.array(keep).reshape(-1):
+            j = idxs[int(k)]
+            di_yi.append((kuang[j], fen[j], lei[j]))
+
+    # 第二遍：跨类 NMS（按分数从高到低扫，压住重叠的低分框）
+    di_yi.sort(key=lambda o: -o[1])
+    liu = []
+    for item in di_yi:
+        a = item[0]
+        chong = False
+        for b_item in liu:
+            b = b_item[0]
+            ix = max(0.0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+            iy = max(0.0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]))
+            jiao = ix * iy
+            if jiao <= 0:
+                continue
+            bing = a[2] * a[3] + b[2] * b[3] - jiao
+            if bing > 0 and jiao / bing > 0.55:      # 重叠过半就认为说的是同一个东西
+                chong = True
+                break
+        if not chong:
+            liu.append(item)
+
+    # 丢小目标 + 分级门槛：用户说"细节可以忽略，大物件一定要识别出来"。
+    # 所以不是一刀切一个阈值，而是面积越小、要求分数越高 ——
+    # 大件只要到 WUTI_YUZHI 就收；小件必须非常自信才留下，
+    # 否则那些 1% 出头的碎框会把真正的大物件淹掉。
+    zong = float(kuan * gao)
+    jieguo = []
+    for (k, f, l) in liu:
+        zhan = k[2] * k[3] / zong
+        if zhan < WUTI_ZUIXIAO:
+            continue
+        if zhan >= 0.05:              # 大件：整图 5% 以上，放宽
+            menkan = yuzhi
+        elif zhan >= 0.02:            # 中等：2%~5%，要求比大件更自信
+            menkan = max(yuzhi, 0.36)
+        else:                          # 小件：1.5%~2%，要求很自信
+            menkan = max(yuzhi, 0.45)
+        if f < menkan:
+            continue
+        # COCO 里有几个类别名是占位符 "?"（数据集里被删掉的类），
+        # 命中它们只会在结果区显示一个问号，直接丢掉
+        if COCO_LEI[l] == "?":
+            continue
+        # 还有一个反方向的坑：整张图一个框全包住（占 90% 以上），
+        # 那是模型「把整幅画糊成一坨」的典型表现，不是真有一个物体
+        if zhan > 0.90 and f < 0.60:
+            continue
+        jieguo.append((int(k[0]), int(k[1]), int(k[2]), int(k[3]),
+                       COCO_LEI[l], float(f)))
+
+    # 大件排前面：面积大的先说，这是"大物件优先"的直接体现
+    jieguo.sort(key=lambda o: -(o[2] * o[3]))
+    return jieguo
+
+
+def zhao_wuti(tupian, yuzhi=None):
+    """找出图里能认出来的物体，返回 ([(x,y,w,h,类别,分数)], 错误说明)
+    大物件优先：返回的列表按面积从大到小排好，界面顺序就是"先大的后小的"。"""
+    import numpy as np
+    import cv2
+    if yuzhi is None:
+        yuzhi = WUTI_YUZHI
+    wang = _yao_wuti()
+    if wang is None:
+        return [], _se_wuti_cuo
+
+    # 大图先缩到 1600：模型本来就要把图缩到 640，先缩一次只是把"缩放这一步"
+    # 从几千万像素降到两三百万像素，结果一样，速度差好几倍
+    xiao, bi = _suo_xiao(tupian)
+    gao, kuan = xiao.shape[:2]
+    chizi = WUTI_CHICUN if _se_wuti_leixing == "yolox" else 416
+    hua, suofang, zuo, shang = _zhengli_tupian(xiao, chizi)
+
+    # 注意两者的预处理不一样：
+    #   YOLOX 是「减均值除方差」的归一化，且不缩放像素值
+    #   NanoDet 是 1/57.375 的缩放 + ImageNet 均值
+    if _se_wuti_leixing == "yolox":
+        blob = cv2.dnn.blobFromImage(hua, 1.0, (chizi, chizi), (0, 0, 0),
+                                     swapRB=True, crop=False)
+    else:
+        blob = cv2.dnn.blobFromImage(hua, 1 / 57.375, (chizi, chizi),
+                                     (103.53, 116.28, 123.675),
+                                     swapRB=True, crop=False)
+    try:
+        wang.setInput(blob)
+        mingzi = wang.getUnconnectedOutLayersNames()
+        shuchu = wang.forward(mingzi)
+    except Exception as e:
+        return [], "物体识别推理失败：%s" % e
+
+    if _se_wuti_leixing == "yolox":
+        kuang, fen, lei = _jie_yolox(shuchu[0], chizi, suofang, zuo, shang,
+                                     kuan, gao, yuzhi)
+        jieguo = _fangda_kuang(_hou_chuli(kuang, fen, lei, kuan, gao, yuzhi),
+                               bi, tupian.shape[1], tupian.shape[0])
+        return _jiuzheng_lingdai(tupian, jieguo), ""
+
+    # ---------------- 以下只给 NanoDet 兜底用 ----------------
+    shuchu = dict(zip(mingzi, shuchu))
+    kuang_all, fen_all, lei_all = [], [], []
+    for buju, ming_fen, ming_kuang in ((8, "792", "795"), (16, "814", "817"),
+                                       (32, "836", "839")):
+        if ming_fen not in shuchu or ming_kuang not in shuchu:
+            continue
+        k, f, l = _jie_nanodet(shuchu[ming_fen], shuchu[ming_kuang], buju, chizi)
+        kuang_all.append(k)
+        fen_all.append(f)
+        lei_all.append(l)
+    if not kuang_all:
+        return [], "物体模型的输出对不上，可能是模型版本不对。"
+
+    kuang_all = np.vstack(kuang_all)
+    fen_all = np.concatenate(fen_all)
+    lei_all = np.concatenate(lei_all)
+    liu = fen_all > yuzhi
+    kuang_all, fen_all, lei_all = kuang_all[liu], fen_all[liu], lei_all[liu]
+
+    daiban_k, daiban_f, daiban_l = [], [], []
+    for i in range(len(kuang_all)):
+        x1 = (kuang_all[i, 0] - zuo) / suofang
+        x2 = (kuang_all[i, 2] - zuo) / suofang
+        y1 = (kuang_all[i, 1] - shang) / suofang
+        y2 = (kuang_all[i, 3] - shang) / suofang
+        x1 = max(0, min(kuan - 1, x1))
+        x2 = max(0, min(kuan - 1, x2))
+        y1 = max(0, min(gao - 1, y1))
+        y2 = max(0, min(gao - 1, y2))
+        if x2 - x1 < 3 or y2 - y1 < 3:
+            continue
+        daiban_k.append([float(x1), float(y1), float(x2 - x1), float(y2 - y1)])
+        daiban_f.append(float(fen_all[i]))
+        daiban_l.append(int(lei_all[i]))
+
+    jieguo = _fangda_kuang(
+        _hou_chuli(daiban_k, daiban_f, daiban_l, kuan, gao, yuzhi),
+        bi, tupian.shape[1], tupian.shape[0])
+    return _jiuzheng_lingdai(tupian, jieguo), ""
+
+
+def _zhongwen(lei):
+    return COCO_ZHONG.get(lei, lei)
+
+
+# ----------------------------------------------------------------------
+# 3.5 领带纠偏（第二轮新增）
+# ----------------------------------------------------------------------
+# 问题：正装照里那条领带被认成「雨伞」。
+# 为什么模型会这样：COCO 80 类里有 tie，但这一类在训练集里占比极小，
+# 权重给的分很低；而"竖着的一条深色窄长物"在特征上确实和收起的伞很像。
+# 换模型不现实（39MB 已经不小了），所以按几何 + 亮度做一次纠偏：
+#   · 它整个落在某个「人」的框里（是穿戴在人身上的东西，不是独立道具）
+#   · 又窄又长：高宽比 ≥ 1.35，宽度不到人宽的 40%，长度不到人高的 42%
+#   · 位置在躯干上部：中心落在人框的 18%~72% 高度之间
+#   · 而且偏暗（领带绝大多数是深色，伞面一般亮）
+# 四条全中才改判成「领带」—— 宁可少改，也不能把真伞说成领带。
+_LINGDAI_KE_GAI = ("umbrella", "handbag", "backpack", "suitcase",
+                   "kite", "vase", "bottle", "tie", "book")
+
+
+def _kuai_liangdu(tupian, x, y, w, h):
+    """一小块的平均亮度（0~255）。取不到就返回 255，让调用方放弃改判"""
+    try:
+        gao, kuan = tupian.shape[:2]
+        x1, y1 = max(0, int(x)), max(0, int(y))
+        x2, y2 = min(kuan, int(x + w)), min(gao, int(y + h))
+        if x2 - x1 < 3 or y2 - y1 < 3:
+            return 255.0
+        kuai = tupian[y1:y2:2, x1:x2:2]        # 隔行隔列取，够用又快
+        return float(kuai.mean())
+    except Exception:
+        return 255.0
+
+
+def _jiuzheng_lingdai(tupian, jieguo):
+    """把"穿在人身上、被认成雨伞/包"的窄长深色物改判成领带
+
+    阈值是拿这张正装照实测调出来的：模型给的框是 (721,1839) 起、233×667，
+    底部比人框还多出 30px。所以判定要允许一点点溢出（人高的 6%），
+    并且中轴必须贴着人身（领带一定在正中间，挎包/伞把不会）。
+    """
+    if not jieguo:
+        return jieguo
+    ren = [(o[0], o[1], o[2], o[3]) for o in jieguo if o[4] == "person"]
+    if not ren:
+        return jieguo
+    out = []
+    for (x, y, w, h, lei, fen) in jieguo:
+        if lei in _LINGDAI_KE_GAI and lei != "person":
+            for (px, py, pw, ph) in ren:
+                rong = max(6.0, ph * 0.06)            # 允许溢出一点
+                if not (x >= px - rong and y >= py - rong
+                        and x + w <= px + pw + rong
+                        and y + h <= py + ph + rong):
+                    continue
+                if h / max(1.0, w) < 1.35:            # 不够长条
+                    continue
+                if w > pw * 0.40 or h > ph * 0.58:    # 太大，是别的东西
+                    continue
+                # 中轴要落在人身上中间那 50% 里：领带/领结才这么正
+                cx = x + w / 2.0
+                if abs(cx - (px + pw / 2.0)) > pw * 0.25:
+                    continue
+                # 垂直位置：脖子以下、腰以上（人框含肩以上，故此区间偏中上）
+                cy = y + h / 2.0
+                if not (py + ph * 0.14 <= cy <= py + ph * 1.00):
+                    continue
+                if _kuai_liangdu(tupian, x, y, w, h) > 140:
+                    continue                          # 太亮，不像深色领带
+                lei = "tie"
+                break
+        out.append((x, y, w, h, lei, fen))
+    return out
+
+
+# ----------------------------------------------------------------------
+# 3.6 穿搭描述（第二轮新增）
+# ----------------------------------------------------------------------
+# 没有训练过任何一个"服装分类"模型，也不联网，所以这里不装作认得牌子，
+# 只做一件老实的事：**按身体分带取主色，再把主色翻译成中文说法**。
+#   头肩带 → 发色（顺带判断是不是深色头发）
+#   躯干带 → 左右两侧（外套）+ 中间窄条（内搭/衬衫）
+#   下装带 → 裤子/裙子的主色
+# 再加上物体检测已经认出来的领带，拼成"深色外套 + 白色内搭 + 领带"这种话。
+# 判断不了的一律写"看不出"，绝不编。
+def _zhuse(kuai, qu_se=None, qu_fu=False):
+    """一块 BGR 图的主色（最密的那一档），返回 (r, g, b)
+
+    qu_se 是"背景色"：给了就把接近它的像素剔掉。证件照/影棚图里人框
+    很宽，两侧混进大片背景（蓝色背景 → 黑西装被说成"蓝上装"）。
+    qu_fu 是"剔掉肤色"：脖子、手会混进领口那一带，不剔会把衬衫读成
+    "橙内搭"（实测就踩过）。
+    """
+    if kuai is None or getattr(kuai, "size", 0) == 0:
+        return None
+    try:
+        import numpy as np
+        x = kuai.reshape(-1, 3)
+        if len(x) > 4000:                 # 采样即可，别为一块布算几万像素
+            x = x[::max(1, len(x) // 4000)]
+        if qu_fu and len(x):
+            r_ = x[:, 2].astype(np.int32)
+            g_ = x[:, 1].astype(np.int32)
+            b_ = x[:, 0].astype(np.int32)
+            fu = (r_ > 95) & (g_ > 40) & (b_ > 20) & (r_ > g_) & (r_ > b_) \
+                & ((r_ - g_) > 18)
+            liu = ~fu
+            if int(liu.sum()) >= max(24, int(len(x) * 0.10)):
+                x = x[liu]
+        if qu_se is not None and len(x):
+            cha = np.abs(x[:, ::-1].astype(np.int32)
+                         - np.array(qu_se, dtype=np.int32)).sum(axis=1)
+            liu = cha > 70
+            # 只剩一点点就别剔了 —— 那说明这块本来就接近背景色，
+            # 硬剔完会算出个乱七八糟的平均色
+            if int(liu.sum()) >= max(24, int(len(x) * 0.12)):
+                x = x[liu]
+        # 【量化粒度必须是 32】每通道 8 档 = 3 bit，三个通道拼成一个整数当
+        # 桶号。写成 x//24 会得到 0~10 一共 11 档，塞不进 3 bit，桶号会互相
+        # 踩踏（白色 245 被算成"青"，就是这一处错位导致的）。
+        q = (x // 32).astype(np.int32)
+        key = q[:, 0] * 64 + q[:, 1] * 8 + q[:, 2]
+        vals, counts = np.unique(key, return_counts=True)
+        k = int(vals[int(counts.argmax())])
+        # 注意通道顺序：tupian 是 cv2 的 BGR，q[:,0] 是 B，不是 R。
+        b = (k // 64) * 32 + 16
+        g = ((k // 8) % 8) * 32 + 16
