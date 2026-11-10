@@ -5609,3 +5609,472 @@ def _ji_bizhi(lu):
     except Exception:
         pass
 
+
+# ------------------------------------------------------------------------------
+# 记忆：把人设 + 聊天记录写成一份 markdown
+# ------------------------------------------------------------------------------
+JIYI_MULU = os.path.join(DIR, "记忆")
+
+
+def xie_jiyi_wenjian(tiao=None, haogan=55, dangqian="平静", lunshu=0):
+    """把 人设 + 聊天记录 写成文件，返回路径
+
+    tiao 是对话区的气泡表 [[tag, 文字, 标题], ...]：
+    tag 有 wo / ta / pangbai / xitong / tu 五种 —— 前三种是人话，后两种跳过。
+    """
+    try:
+        os.makedirs(JIYI_MULU, exist_ok=True)
+    except Exception:
+        pass
+    xianzai = datetime.datetime.now()
+    lu = os.path.join(JIYI_MULU, "记忆_%s.md" % xianzai.strftime("%Y%m%d_%H%M"))
+
+    try:
+        with open(os.path.join(DIR, "人设.txt"), encoding="utf-8") as f:
+            ren = f.read().strip()
+    except Exception:
+        ren = "（人设.txt 没读到）"
+
+    hang = []
+    for t in (tiao or []):
+        if not t or len(t) < 2:
+            continue
+        tag, wen = t[0], str(t[1] or "").strip()
+        if not wen:
+            continue
+        if tag == "wo":
+            hang.append("**我**：" + wen.replace("\n", " "))
+        elif tag == "ta":
+            hang.append("**小笨蛋**：" + wen.replace("\n", " "))
+        elif tag == "pangbai":
+            hang.append("（%s）" % wen.replace("\n", " "))
+    liaotian = "\n\n".join(hang) if hang else "（还没聊过）"
+
+    nei = (
+        "# 小笨蛋 · 记忆\n\n"
+        "> 导出时间：%s　｜　好感度 %d/100　心情「%s」　聊到第 %d 轮\n"
+        ">\n"
+        "> 左边是她的人设，右边是你们说过的话。\n"
+        "> 换个模型接着聊时，把这份文件一起喂进去 —— 新模型至少知道她是谁、你们聊过什么。\n\n"
+        "---\n\n"
+        "## 一、她是谁（人设）\n\n%s\n\n"
+        "---\n\n"
+        "## 二、我们说过的\n\n%s\n\n"
+        "---\n\n"
+        "> 她记性不好，换台机器就等于失忆。\n"
+        "> 这份记忆留给你，别弄丢了。\n"
+    ) % (xianzai.strftime("%Y-%m-%d %H:%M"), haogan, dangqian, lunshu, ren, liaotian)
+
+    with open(lu, "w", encoding="utf-8") as f:
+        f.write(nei)
+    return lu
+
+
+def du_jiyi_wenjian(lu):
+    """读一份记忆文件，返回 (对话列表, 好感度)
+
+    对话列表的格式跟对话区的 _tiao 一样：[[tag, 文字, 标题], ...]，
+    所以读回来可以直接塞给对话区重画。
+    好感度读不到就返回 None，调用方自己决定保不保留。
+    """
+    with open(lu, encoding="utf-8") as f:
+        quan = f.read()
+
+    haogan = None
+    m = re.search(r"好感度 (\d+)/100", quan)
+    if m:
+        try:
+            haogan = int(m.group(1))
+        except Exception:
+            haogan = None
+
+    hang = []
+    kuai = quan.split("## 二、我们说过的")
+    if len(kuai) > 1:
+        zheng = kuai[1].split("---")[0]
+        for x in zheng.split("\n"):
+            x = x.strip()
+            if not x:
+                continue
+            if x.startswith("**我**："):
+                hang.append(["wo", x[len("**我**："):].strip(), ""])
+            elif x.startswith("**小笨蛋**："):
+                hang.append(["ta", x[len("**小笨蛋**："):].strip(), ""])
+            elif x.startswith("（") and x.endswith("）"):
+                hang.append(["pangbai", x[1:-1].strip(), ""])
+    return hang, haogan
+
+
+# ------------------------------------------------------------------------------
+# 存档：聊天记录和好感度要一直在 —— 关掉程序、下次打开还在
+# ------------------------------------------------------------------------------
+# 存成一个 json 放在程序目录。清空聊天时连这个文件一起删，这才叫"用户主动删除"。
+# 不做退出时才存：用户可能直接关机、断电、任务管理器杀进程，那就全丢了。
+# 所以是"每 5 秒看一眼，有变化就落盘"，最多丢 5 秒的对话。
+CUNDANG_LU = os.path.join(DIR, "存档.json")
+
+
+def du_cundang():
+    """读存档。没有、读坏了、或者里面没对话，都返回 None"""
+    try:
+        with open(CUNDANG_LU, encoding="utf-8") as f:
+            shu = json.load(f)
+        if isinstance(shu, dict):
+            return shu
+    except Exception:
+        pass
+    return None
+
+
+def xie_cundang(tiao, haogan=55, lunshu=0, dangqian="平静"):
+    """写存档。写失败就算了 —— 存不了档也不能把程序弄崩"""
+    try:
+        dui = []
+        for t in (tiao or []):
+            if not t or len(t) < 3:
+                continue
+            dui.append([str(t[0]), str(t[1]), str(t[2] or "")])
+        shu = {
+            "版本": 1,
+            "时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "好感度": int(haogan),
+            "轮数": int(lunshu),
+            "心情": str(dangqian),
+            "对话": dui,
+        }
+        with open(CUNDANG_LU, "w", encoding="utf-8") as f:
+            json.dump(shu, f, ensure_ascii=False, indent=1)
+        return True
+    except Exception:
+        return False
+
+
+# ======================================================================
+#  个性化：换头像
+# ----------------------------------------------------------------------
+#  存的都是 256×256 的 PNG：用户可能丢进来一张 4K 照片，
+#  原图存着，每次开程序解码一次就可能卡半秒，还平白多几 MB。
+# ======================================================================
+TOU_LU = os.path.join(DIR, "个性化")
+
+TOU_MING = {"wo": "我的头像.png", "ta": "她的头像.png"}
+
+
+_YULAN_CUN = {}      # 个性化页的小样缓存：功能页每次悬停都会重画，不能每帧重算
+
+
+def _tou_yulan(tu, shui, cx, cy, r):
+    """把头像画进功能页那张图（圆形）。没头像返回 False
+
+    缓存一层：功能页一悬停就整页重画，每帧都去读盘 + LANCZOS 缩一遍
+    会明显拖手。按「文件 + 修改时间 + 尺寸」缓存，换头像后自动失效。
+    """
+    try:
+        from PIL import Image, ImageDraw
+        lu = tou_lu(shui)
+        try:
+            mt = os.path.getmtime(lu)
+        except Exception:
+            return False
+        px = max(8, int(r * 2))
+        biao = (shui, round(mt, 2), px)
+        im2 = _YULAN_CUN.get(biao)
+        if im2 is None:
+            im = tou_tu(shui)
+            if im is None:
+                return False
+            im2 = im.resize((px, px), Image.LANCZOS)
+            mk = Image.new("L", (px, px), 0)
+            ImageDraw.Draw(mk).ellipse((0, 0, px - 1, px - 1), fill=255)
+            im2.putalpha(mk)
+            if len(_YULAN_CUN) > 40:
+                _YULAN_CUN.clear()
+            _YULAN_CUN[biao] = im2
+        tu.paste(im2, (int(cx - r), int(cy - r)), im2)
+        return True
+    except Exception:
+        return False
+
+
+def _qipao_yulan(tu, x, y, w, h, yang, di_yuan=None):
+    """个性化页里的气泡小样：她一条、我一条，直接调真身生成
+
+    以前是自己画圆角块，跟聊天区实际效果对不上（预览是预览、聊天是
+    聊天）。现在统一调 qipao_tu，看到的什么样，换上就是什么样。
+
+    「透光」那套还要再进一步：从功能页自己的背景上裁一块给气泡当底，
+    否则预览里没有"身后的壁纸"，玻璃就只能显示成一块灰白 —— 用户
+    根本看不出它和「圆角」的区别。
+    """
+    try:
+        bw1, bh1 = int(w * 0.50), 26
+        bw2, bh2 = int(w * 0.38), 26
+        x1, y1 = int(x + 2), int(y + 14)
+        x2, y2 = int(x + w - bw2 - 2), int(y + 36)
+
+        di1 = di2 = None
+        if yang == 2:
+            # 有真实壁纸就用壁纸（功能页背景被压暗过，直接裁会黑成一块），
+            # 没壁纸才退成裁页面自身的底色
+            if di_yuan is not None:
+                try:
+                    cw, ch = di_yuan.size
+                    bx = max(0, min(cw - bw1 - 1, int(cw * 0.20)))
+                    by = max(0, min(ch - bh1 - 1, int(ch * 0.28)))
+                    di1 = di_yuan.crop((bx, by, bx + bw1, by + bh1)).convert("RGB")
+                    bx2 = max(0, min(cw - bw2 - 1, int(cw * 0.46)))
+                    by2 = max(0, min(ch - bh2 - 1, int(ch * 0.56)))
+                    di2 = di_yuan.crop((bx2, by2, bx2 + bw2, by2 + bh2)).convert("RGB")
+                except Exception:
+                    di1 = di2 = None
+            if di1 is None:
+                di1 = tu.crop((x1, y1, x1 + bw1, y1 + bh1)).convert("RGB")
+                di2 = tu.crop((x2, y2, x2 + bw2, y2 + bh2)).convert("RGB")
+            b1, off1 = qipao_tu(bw1, bh1, yang, False, MAO_TA_DI, MAO_TA_BIAN, di1)
+            b2, off2 = qipao_tu(bw2, bh2, yang, True, MAO_WO_DI, MAO_WO_BIAN, di2)
+        else:
+            # 另外两套不依赖背景，按尺寸缓存，页面反复重画也不掉帧
+            biao = ("qp", int(w), int(h), int(yang))
+            ji = _YULAN_CUN.get(biao)
+            if ji is None:
+                b1, off1 = qipao_tu(bw1, bh1, yang, False, MAO_TA_DI, MAO_TA_BIAN)
+                b2, off2 = qipao_tu(bw2, bh2, yang, True, MAO_WO_DI, MAO_WO_BIAN)
+                if b1 is None or b2 is None:
+                    return False
+                ji = (b1, off1, b2, off2)
+                if len(_YULAN_CUN) > 40:
+                    _YULAN_CUN.clear()
+                _YULAN_CUN[biao] = ji
+            b1, off1, b2, off2 = ji
+
+        if b1 is None or b2 is None:
+            return False
+        tu.paste(b1, (int(x1 + off1[0]), int(y1 + off1[1])), b1)
+        tu.paste(b2, (int(x2 + off2[0]), int(y2 + off2[1])), b2)
+        return True
+    except Exception:
+        return False
+
+
+def du_qipao_yang():
+    """读上次选的气泡样式（0 猫耳 / 1 圆角 / 2 透光）"""
+    try:
+        with open(os.path.join(TOU_LU, "气泡.txt"), encoding="utf-8") as f:
+            return max(0, min(2, int((f.read() or "0").strip())))
+    except Exception:
+        return 0
+
+
+def cun_qipao_yang(n):
+    try:
+        os.makedirs(TOU_LU, exist_ok=True)
+        with open(os.path.join(TOU_LU, "气泡.txt"), "w", encoding="utf-8") as f:
+            f.write(str(int(n)))
+        return True
+    except Exception:
+        return False
+
+
+def tou_lu(shui):
+    return os.path.join(TOU_LU, TOU_MING.get(shui, TOU_MING["wo"]))
+
+
+def tou_you(shui):
+    try:
+        return os.path.exists(tou_lu(shui))
+    except Exception:
+        return False
+
+
+def tou_tu(shui):
+    """读自定义头像，返回 PIL 图（原样方形，画的时候再蒙圆）或 None"""
+    if not tou_you(shui):
+        return None
+    try:
+        from PIL import Image
+        im = Image.open(tou_lu(shui)).convert("RGBA")
+        if im.size[0] != im.size[1]:
+            side = min(im.size)
+            im = im.crop(((im.width - side) // 2, (im.height - side) // 2,
+                          (im.width + side) // 2, (im.height + side) // 2))
+        return im
+    except Exception:
+        return None
+
+
+def tou_cun(src, shui):
+    """把用户选的图存成 1:1 的 256×256：先居中裁方，再缩，不糊也不胖"""
+    try:
+        from PIL import Image
+        os.makedirs(TOU_LU, exist_ok=True)
+        im = Image.open(src).convert("RGBA")
+        side = min(im.size)
+        im = im.crop(((im.width - side) // 2, (im.height - side) // 2,
+                      (im.width + side) // 2, (im.height + side) // 2))
+        im = im.resize((256, 256), Image.LANCZOS)
+        im.save(tou_lu(shui), optimize=True)
+        return True, tou_lu(shui)
+    except Exception as e:
+        return False, str(e)
+
+
+def tou_shan(shui):
+    try:
+        if tou_you(shui):
+            os.remove(tou_lu(shui))
+        return True
+    except Exception:
+        return False
+
+
+# ======================================================================
+#  她记得的「重要的事」
+# ----------------------------------------------------------------------
+#  好感度记的是"多熟"，这里记的是"你是谁"。
+#  从对话里抽出来存成一个小档案，灵光模式下会塞进上下文，
+#  离线时也能拿来搭话。宁可不记，也别记错 —— 记错了比不记更假。
+# ======================================================================
+ZHONGYAO_LU = os.path.join(DIR, "记忆_重要的事.json")
+
+# 提取规则：(分类, 正则, 取第几组)
+# 名字只认「我叫X」——「我是学生」这种一抓一个准的误记，宁可漏
+ZHONGYAO_GUI = (
+    ("名字", re.compile(r"我(?:的名字)?叫\s*([\u4e00-\u9fa5A-Za-z]{1,6})(?:[，。！？,.!?\s]|$)"), 1),
+    ("宠物", re.compile(r"我(?:家)?(?:养|有)(?:了)?.*?(猫|狗|兔|仓鼠|鸟|鱼)(?:叫([\u4e00-\u9fa5]{1,6}))?"), None),
+    ("喜欢", re.compile(r"我(?:很|特别|超|最)?(?:喜欢|爱|迷上了)\s*([\u4e00-\u9fa5A-Za-z0-9]{2,12})"), 1),
+    ("讨厌", re.compile(r"我(?:很|特别|最)?(?:不喜欢|讨厌|受不了|烦)\s*([\u4e00-\u9fa5A-Za-z0-9]{2,12})"), 1),
+    ("怕", re.compile(r"我(?:很|有点|特别|最)?(?:怕|害怕)\s*([\u4e00-\u9fa5A-Za-z0-9]{1,10})"), 1),
+)
+
+# 「怕」只留一个字的，多半是「怕啊」「怕呢」这种语气，不是真怕什么
+_PA_YUQI = ("啊", "呀", "呢", "吧", "了", "哦", "嘛", "的")
+
+
+def du_zhongyao():
+    """读小档案。没有、读坏了，都当空字典"""
+    try:
+        with open(ZHONGYAO_LU, encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            return d
+    except Exception:
+        pass
+    return {}
+
+
+def xie_zhongyao(d):
+    try:
+        with open(ZHONGYAO_LU, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=1)
+        return True
+    except Exception:
+        return False
+
+
+def _shi_chenshu(wenti):
+    """这句话是不是"在说自己"的陈述句
+
+    为什么要判：'我喜欢你吗？' 抽出来就成了"他喜欢我"，
+    假记忆比没记忆更伤人。带问号、带假设的一律不算。
+    """
+    w = (wenti or "").strip()
+    if not w:
+        return False
+    if any(c in w for c in ("？", "?", "吗", "嘛")):
+        return False
+    if any(c in w for c in ("如果", "要是", "假如", "假设", "会不会")):
+        return False
+    return True
+
+
+def ti_zhongyao(wenti):
+    """从一句话里抽"该记住的事"，抽到就落盘，返回 [(分类, 值), ...]"""
+    if not _shi_chenshu(wenti):
+        return []
+    ji = du_zhongyao()
+    xin = []
+    for fen, zheng, zu in ZHONGYAO_GUI:
+        try:
+            m = zheng.search(wenti)
+        except Exception:
+            continue
+        if not m:
+            continue
+        if fen == "宠物":
+            # 「养了只猫叫咪咪」→ 咪咪（猫）；「养了只狗」→ 狗
+            zhong = (m.group(1) or "").strip()
+            ming = ""
+            try:
+                ming = (m.group(2) or "").strip()
+            except Exception:
+                pass
+            zhi = ("%s（%s）" % (ming, zhong)) if ming else zhong
+        else:
+            zhi = (m.group(zu) or "").strip()
+        # 长度门槛按分类定：名字、宠物种类、怕的东西都可能只有一个字
+        # （"狗""猫""黑""鬼"），统一卡 2 字会把它们全漏掉
+        zu_duan = 1 if fen in ("名字", "宠物", "怕") else 2
+        if len(zhi) < zu_duan:
+            continue
+        if fen == "怕" and zhi in _PA_YUQI:
+            continue
+        if fen in ("喜欢", "讨厌", "怕", "宠物"):
+            cur = ji.get(fen)
+            if not isinstance(cur, list):
+                cur = []
+            if zhi in cur or len(cur) >= 6:
+                continue
+            cur.append(zhi)
+            ji[fen] = cur
+        else:
+            if ji.get(fen) == zhi:
+                continue
+            ji[fen] = zhi
+        xin.append((fen, zhi))
+    if xin:
+        ji["更新"] = datetime.datetime.now().strftime("%Y-%m-%d")
+        xie_zhongyao(ji)
+    return xin
+
+
+# 规则抽不到的，交给模型补。为什么要有这一手：
+#   ZHONGYAO_GUI 只能认「我叫X」「我喜欢X」这几种句式，
+#   但人说话是「我这周天天加班到十点」「我妈让我回家吃饭」——
+#   这些里面有"该记住的事"，规则一条都抽不出来。
+TI_ZHONGYAO_XITONG = """你是一个"记忆提取器"。读用户说的话，抽出**值得长期记住的事实**。
+
+只抽这几类，抽不到就返回空对象：
+  名字       他叫什么（"我叫裴"/"叫我小裴"）
+  生日       生日、年龄（"我 05 年的"→"2005年生"）
+  工作       职业、学业（"我在读大专"/"我做美工"）
+  住处       城市、居住地（"我住太仓"）
+  宠物       养的动物（"我家有只橘猫叫团子"）
+  喜欢       明确说喜欢的（食物/游戏/音乐/季节/活动）
+  讨厌       明确说不喜欢的
+  怕         明确说害怕的
+  家人       提到家人的重要事实（"我妹今年高考"）
+  习惯       固定的作息或习惯（"我一般两点睡"）
+  重要的事    其他对"了解这个人"有用的事实
+
+规则（很重要，违反任何一条就宁可返回空对象）：
+  · 只抽**他明确陈述的**。疑问、假设、玩笑、反问一律不抽。
+    "我喜欢你吗？" "要是我是外星人" 都不抽。
+  · 值要短，**不超过 12 个字**，直接写事实本身，不要写成句子。
+    "我这周天天加班到十点" → {"习惯": ["最近加班到十点"]}
+  · 不要抽他随口说的临时状态（"我现在有点累""我饿了"）。
+  · 不要抽他说你的事（"你好可爱"）。
+  · 一条都不值得记就返回 {}。
+
+只输出 JSON，不要任何解释、不要 markdown 代码块。
+格式：{"分类": ["值1", "值2"]}，没有就 {}
+"""
+
+
+def ti_zhongyao_llm(wenti, pei=None):
+    """用模型补抽一遍规则漏掉的记忆。失败返回 []。
+
+    【为什么不替代 ti_zhongyao】规则版是本地免费的、同步的、零延迟。
+    每句话都走模型要多花 1 秒 + 一次 token 钱。
+    所以策略是：先跑规则，规则抽到了就不再问模型；
+    规则抽不到、但这句话够长（像在讲自己的事）才让模型补。
+    """
