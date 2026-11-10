@@ -6078,3 +6078,314 @@ def ti_zhongyao_llm(wenti, pei=None):
     所以策略是：先跑规则，规则抽到了就不再问模型；
     规则抽不到、但这句话够长（像在讲自己的事）才让模型补。
     """
+    if not _shi_chenshu(wenti):
+        return []
+    w = (wenti or "").strip()
+    # 短于 6 个字的多半是"嗯""好""哈哈"，不值得调模型
+    if len(w) < 6:
+        return []
+    try:
+        pei = pei or du_api_peizhi()
+        if not api_youxiao(pei):
+            return []
+    except Exception:
+        return []
+
+    try:
+        # 这里不用 diaoyong_llm（它带人设、走聊天格式），
+        # 记忆提取需要一个干净的无状态调用
+        ti = {
+            "model": str(pei.get("model", "deepseek-flash")),
+            "messages": [
+                {"role": "system", "content": TI_ZHONGYAO_XITONG},
+                {"role": "user", "content": w[:400]},
+            ],
+            "max_tokens": 220,
+            "temperature": 0.1,
+            "stream": False,
+        }
+        jie, cuo = _http_json(
+            str(pei.get("base_url", "https://api.deepseek.com")).rstrip("/")
+            + "/chat/completions",
+            ti, {"Content-Type": "application/json",
+                 "Authorization": "Bearer %s" % pei.get("api_key", "")},
+            20)
+        if not jie or cuo:
+            return []
+        neirong = ""
+        try:
+            neirong = jie["choices"][0]["message"]["content"] or ""
+        except Exception:
+            return []
+        neirong = neirong.strip()
+        # 模型有时会包 ```json ``` ，剥掉
+        neirong = re.sub(r"^```(?:json)?\s*|\s*```$", "", neirong).strip()
+        if not neirong.startswith("{"):
+            return []
+        d = json.loads(neirong)
+        if not isinstance(d, dict):
+            return []
+    except Exception:
+        return []
+
+    # 落盘：走和规则版一样的合并逻辑（去重、每个列表最多 6 条）
+    ji = du_zhongyao()
+    xin = []
+    for fen, zhis in d.items():
+        fen = str(fen).strip()
+        if not fen or fen in ("更新",):
+            continue
+        if not isinstance(zhis, list):
+            zhis = [zhis]
+        for zhi in zhis[:3]:
+            zhi = str(zhi).strip()
+            if not zhi or len(zhi) > 24:
+                continue
+            # 单值的只有这几类，其余都按列表存 ——
+            # "在读大专" 和 "学美工" 是两条事实，不该互相覆盖。
+            if fen not in ("名字", "生日", "住处"):
+                cur = ji.get(fen)
+                if not isinstance(cur, list):
+                    cur = []
+                if zhi in cur or len(cur) >= 8:
+                    continue
+                cur.append(zhi)
+                ji[fen] = cur
+            else:
+                if ji.get(fen) == zhi:
+                    continue
+                ji[fen] = zhi
+            xin.append((fen, zhi))
+    if xin:
+        ji["更新"] = datetime.datetime.now().strftime("%Y-%m-%d")
+        xie_zhongyao(ji)
+    return xin
+
+
+# 每个分类在句子里怎么念。顺序就是塞进提示词的顺序 ——
+# 名字身份类放前面（越靠前模型越当回事），口味类放后面。
+ZHONGYAO_SHUO = (
+    ("名字",   "他叫%s"),
+    ("生日",   "生日/年龄：%s"),
+    ("工作",   "学业或工作：%s"),
+    ("住处",   "住%s"),
+    ("家人",   "家里的事：%s"),
+    ("宠物",   "养着%s"),
+    ("喜欢",   "喜欢%s"),
+    ("讨厌",   "不喜欢%s"),
+    ("怕",     "怕%s"),
+    ("习惯",   "习惯：%s"),
+    ("重要的事", "%s"),
+)
+
+
+def zhongyao_wen():
+    """把档案压成一句话，塞进灵光上下文
+
+    【为什么不能只认那五个分类】第一版只读 名字/宠物/喜欢/讨厌/怕 ——
+    那是规则抽取器 ZHONGYAO_GUI 能抽的五类。后来加了模型抽取，
+    它会给出 工作/住处/习惯/家人/生日/重要的事，这些如果不读，
+    存在档案里也等于没记（实测：档案里有"学美工""太仓"，
+    压缩出来却是空字符串）。
+    """
+    ji = du_zhongyao()
+    if not ji:
+        return ""
+    duan = []
+    for fen, moshi in ZHONGYAO_SHUO:
+        zhi = ji.get(fen)
+        if not zhi:
+            continue
+        if isinstance(zhi, (list, tuple)):
+            zhi = [str(x).strip() for x in zhi if str(x).strip()]
+            if not zhi:
+                continue
+            zhi = "、".join(zhi)
+        else:
+            zhi = str(zhi).strip()
+            if not zhi:
+                continue
+        try:
+            duan.append(moshi % zhi)
+        except Exception:
+            continue
+    if not duan:
+        return ""
+    return ("（你记得关于他的事：" + "；".join(duan) +
+            "。这些都是他自己说过的，别一次全倒出来，"
+            "聊到相关的地方再自然提一句；也别把「你记得」这件事说破。）")
+
+
+# ======================================================================
+#  她会主动开口
+# ----------------------------------------------------------------------
+#  频率压得很死：一天最多两次，同一种 24 小时内不重复。
+#  宁可一天不说话，也别让人觉得"这玩意儿一直在刷存在感"。
+#  判断依据只有两条：你多久没来、现在几点了。
+# ======================================================================
+ZHU_LU = os.path.join(DIR, "记忆_主动.json")
+
+# 各场景的台词。同一场景随机挑一句，连着两次不会重样
+ZHU_HUA = {
+    "久别": (
+        "（从兜帽里抬起头）你来了。",
+        "等你很久了……还以为今天不来了。",
+        "（小声）终于回来了。",
+    ),
+    "深夜": (
+        "这么晚了还不睡？",
+        "（揉了揉眼睛）……几点了一看",
+        "夜深了，别熬太晚。",
+    ),
+    "想": (
+        "想你了…你在干嘛",
+        "（戳了戳屏幕）在吗",
+        "突然有点想你。",
+    ),
+    "无聊": (
+        "好无聊啊…想要和我玩游戏吗",
+        "（趴在桌上）陪我待会儿吧",
+        "一个人待着，有点闷。",
+    ),
+    "关心": (
+        "吃饭了吗",
+        "今天累不累",
+        "记得喝水。",
+    ),
+}
+
+
+def du_zhu():
+    try:
+        with open(ZHU_LU, encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            return d
+    except Exception:
+        pass
+    return {}
+
+
+def xie_zhu(d):
+    try:
+        with open(ZHU_LU, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=1)
+        return True
+    except Exception:
+        return False
+
+
+def zhu_dong_na():
+    """该主动说哪一句？不该说就返回 (场景, 台词)，否则 None
+
+    节奏：一天最多 6 次，两次之间至少隔 40 分钟。
+      · 深夜（23 点到 4 点）—— 一天一次
+      · 你很久没来（距上次存档超过 6 小时）—— 一天一次
+      · 其余时候：隔了 12 分钟没说话，就从「想 / 无聊 / 关心」里挑一句
+    """
+    try:
+        now = datetime.datetime.now()
+        d = du_zhu()
+        jin = now.strftime("%Y-%m-%d")
+        if d.get("日期") != jin:
+            d["日期"] = jin
+            d["次数"] = 0
+        if int(d.get("次数", 0) or 0) >= 6:
+            return None
+
+        hou = d.get("最后") or {}
+
+        # 两次之间至少 40 分钟，别连着弹
+        try:
+            shang = d.get("上次")
+            if shang:
+                t0 = datetime.datetime.strptime(str(shang), "%Y-%m-%d %H:%M")
+                if (now - t0).total_seconds() < 40 * 60:
+                    return None
+        except Exception:
+            pass
+
+        def _guo_24(x):
+            if not x:
+                return True
+            try:
+                t = datetime.datetime.strptime(str(x), "%Y-%m-%d %H:%M")
+                return (now - t).total_seconds() > 86400
+            except Exception:
+                return True
+
+        def _ji(x):
+            hou[x] = now.strftime("%Y-%m-%d %H:%M")
+            d["最后"] = hou
+            d["上次"] = now.strftime("%Y-%m-%d %H:%M")
+            d["次数"] = int(d.get("次数", 0) or 0) + 1
+            xie_zhu(d)
+
+        def _tao(chang):
+            try:
+                return random.choice(ZHU_HUA[chang])
+            except Exception:
+                return ZHU_HUA["想"][0]
+
+        # ① 深夜
+        xs = now.hour
+        if (xs >= 23 or xs < 4) and _guo_24(hou.get("深夜")):
+            _ji("深夜")
+            return ("深夜", _tao("深夜"))
+
+        # ② 很久没来：看上次存档的时间
+        cang = du_cundang()
+        if cang and cang.get("时间") and _guo_24(hou.get("久别")):
+            try:
+                t = datetime.datetime.strptime(str(cang["时间"]), "%Y-%m-%d %H:%M")
+                if (now - t).total_seconds() > 6 * 3600:
+                    _ji("久别")
+                    return ("久别", _tao("久别"))
+            except Exception:
+                pass
+
+        # ③ 平时：隔了 12 分钟没动静，随便说点什么
+        cang2 = du_cundang()
+        if cang2 and cang2.get("时间"):
+            try:
+                t2 = datetime.datetime.strptime(str(cang2["时间"]), "%Y-%m-%d %H:%M")
+                if (now - t2).total_seconds() > 12 * 60:
+                    chang = random.choice(("想", "无聊", "关心"))
+                    _ji(chang)
+                    return (chang, _tao(chang))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return None
+
+
+def shan_cundang():
+    """用户主动清空聊天时，把存档一起删掉"""
+    try:
+        if os.path.exists(CUNDANG_LU):
+            os.remove(CUNDANG_LU)
+    except Exception:
+        pass
+
+
+
+# ============================================================================
+# 以下：第十部分 · 联网（第 19840-21255 行）
+# core 段里的 cha_tianqi() 会调这里的 tianqi_chaxun()，
+# 两段在同一个模块里才通。
+# ============================================================================
+
+# 第十部分：联网（DeepSeek V4.1-Flash + 实时天气）
+# ----------------------------------------------------------------------
+# 三条铁律，写在前头，改代码时别破坏：
+#   ① 【开关决定一切】顶栏那个「联网 / 离线」开关关掉时，这一部分一行都不跑，
+#      程序完全回到原来的规则引擎 —— 这就是"离线模式只用原程序架构"。
+#   ② 【网络永远在子线程】主线程只管画界面。所有请求都扔进线程，回来用
+#      root.after 排队进主线程，所以等回复的时候窗口照样能拖、能打字。
+#   ③ 【失败就退回原来的嘴】超时、断网、key 没填、余额不足…… 一律不弹错误框，
+#      只写一行浅色提示，然后照原来的 shuohua_jilu() 回答。宁可答得笨一点，
+#      也不能让人家电脑上定格在那句"想一下…"。
+#
+# 配置全在程序旁边的「API.txt」里，随时可改（键名是中文的：钥匙、模型、地址…）。
+# ======================================================================
