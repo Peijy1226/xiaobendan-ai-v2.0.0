@@ -6857,3 +6857,315 @@ def diaoyong_llm(wenti, lishi=None, haogan=55, dangqian="平静", pei=None,
     不被接受时才去试备用名，正常路径永远只发一次请求。
 
     zui_duo 是 max_tokens，默认 500（聊天一两句话足够）。
+    写作文要按"字数档位"调大：500 token 顶多七八百个汉字，
+    选「500 字」「不限」时不放开就会写到一半被掐断。
+    """
+    pei = pei or du_api_peizhi()
+    key = str(pei.get("api_key", "")).strip()
+    if not key:
+        return "", "还没填钥匙"
+    try:
+        miao = max(5, min(120, int(float(pei.get("timeout", "25")))))
+    except Exception:
+        miao = 25
+    base = str(pei.get("base_url", "")).strip().rstrip("/") \
+        or "https://api.deepseek.com"
+    url = base + "/chat/completions"
+    moxing = str(pei.get("model", "")).strip() or "deepseek-flash"
+
+    ti = {
+        "model": moxing,
+        "messages": _zuzhuang_xiaoxi(wenti, lishi, haogan, dangqian, xitong),
+        "temperature": 0.9,
+        "max_tokens": max(100, min(4000, int(zui_duo or 500))),
+        "stream": False,
+    }
+    # 思考模式默认是开的，聊天场景要的是"秒回"，所以默认关掉。
+    # 这个字段万一哪天不被接受（400），下面会自动去掉再试一次。
+    guan_sikao = str(pei.get("thinking", "0")).strip() in ("0", "false", "False")
+    if guan_sikao:
+        ti["thinking"] = {"type": "disabled"}
+
+    head = {"Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": "Bearer " + key}
+
+    jie, cuo = _http_json(url, ti, head, miao)
+    # 只在"400 + 参数不认识"这种情况下才去掉 thinking 重试一次。
+    # 不能一失败就重试：401（key 错）、超时、断网重试也没用，白白多等一轮，
+    # 用户看到的就是"明明一句 key 错了，却卡了十几秒才回话"。
+    if jie is None and "thinking" in ti and "接口返回 400" in cuo:
+        # 多半是这个字段不认识 → 去掉再试一次
+        ti.pop("thinking", None)
+        jie, cuo = _http_json(url, ti, head, miao)
+    if jie is None and "模型名" in cuo:
+        # 配置里写了个不认识的模型名 —— 用官方当前的名字兜一次
+        ti["model"] = "deepseek-flash"
+        jie, cuo = _http_json(url, ti, head, miao)
+    if jie is None:
+        return "", cuo or "没拿到回答"
+
+    try:
+        hui = jie["choices"][0]["message"]["content"]
+    except Exception:
+        return "", "返回的格式看不懂"
+    hui = (hui or "").strip()
+    if not hui:
+        return "", "模型这次没说话"
+
+    # 【露馅兜底】人设写在提示词里，提示词是软的：聊久了它还是会飘回助手腔。
+    # 所以这里再查一遍，命中了就带着"刚才那句不像你"重说一次；
+    # 第二次还漏，就别硬塞了，直接岔开话题 —— 宁可答得含糊，不能自曝。
+    ci = _zi_bao(hui) if yao_jian_cha else ""
+    if ci:
+        try:
+            ti2 = dict(ti)
+            ti2["messages"] = list(ti["messages"]) + [
+                {"role": "assistant", "content": hui},
+                {"role": "user", "content":
+                    "（刚才那句不像你说的。别用什么AI、模型、程序、系统这些词，"
+                    "用小笨蛋的口气重说一遍，短一点。）"},
+            ]
+            jie2, _ = _http_json(url, ti2, head, miao)
+            hui2 = ""
+            if jie2:
+                hui2 = (jie2["choices"][0]["message"]["content"] or "").strip()
+            if hui2 and not _zi_bao(hui2):
+                return hui2, ""
+        except Exception:
+            pass
+        return random.choice(_ZHE_DANG), ""
+    return hui, ""
+
+
+# ----------------------------------------------------------------------
+#  10.3 实时天气（Open-Meteo，不要 key）
+# ----------------------------------------------------------------------
+# 为什么用 Open-Meteo：它免费、不要 key、不要注册。天气是"实时数据"，
+# 离线表里那些「北京|晴|18~26℃」永远是假的，这也是用户说"每次都不准"的原因。
+TIANQI_MA = {
+    0: "晴", 1: "大致晴朗", 2: "多云", 3: "阴",
+    45: "有雾", 48: "雾凇",
+    51: "毛毛雨", 53: "小雨", 55: "中雨",
+    56: "冻雨", 57: "冻雨",
+    61: "小雨", 63: "中雨", 65: "大雨",
+    66: "冻雨", 67: "冻雨",
+    71: "小雪", 73: "中雪", 75: "大雪", 77: "米雪",
+    80: "阵雨", 81: "强阵雨", 82: "暴雨",
+    85: "阵雪", 86: "强阵雪",
+    95: "雷阵雨", 96: "雷阵雨伴冰雹", 99: "雷阵雨伴冰雹",
+}
+
+# ----------------------------------------------------------------------
+#  10.3.1 从一句话里认出"哪座城 + 哪几天"
+# ----------------------------------------------------------------------
+# 常见城市表。它只干一件事：**先认一遍**，让"扬州""宿迁""昆山"这种
+# 不在旧表里的小城不必非得按某种句式说才认得出来。表里没有的照样能查 ——
+# 下面还有正则，最后还有地理编码接口兜着。
+TQ_CHENGSHI = (
+    "北京", "上海", "天津", "重庆", "广州", "深圳", "杭州", "南京", "武汉", "成都",
+    "西安", "苏州", "郑州", "长沙", "沈阳", "青岛", "宁波", "东莞", "无锡", "厦门",
+    "福州", "合肥", "昆明", "济南", "大连", "佛山", "长春", "哈尔滨", "南宁", "石家庄",
+    "太原", "南昌", "贵阳", "兰州", "西宁", "银川", "乌鲁木齐", "呼和浩特", "拉萨",
+    "海口", "三亚", "温州", "绍兴", "嘉兴", "金华", "台州", "湖州", "常州", "徐州",
+    "南通", "扬州", "镇江", "泰州", "盐城", "淮安", "宿迁", "连云港", "昆山", "江阴",
+    "张家港", "常熟", "太仓", "宜兴", "溧阳", "如皋", "启东", "海安", "兴化", "靖江",
+    "洛阳", "开封", "唐山", "保定", "廊坊", "秦皇岛", "烟台", "潍坊", "淄博", "威海",
+    "临沂", "济宁", "泰安", "芜湖", "蚌埠", "安庆", "九江", "赣州", "宜昌", "襄阳",
+    "荆州", "株洲", "湘潭", "岳阳", "常德", "绵阳", "宜宾", "泸州", "遵义", "曲靖",
+    "桂林", "柳州", "汕头", "珠海", "中山", "惠州", "江门", "湛江", "泉州", "莆田",
+    "漳州", "龙岩", "包头", "鄂尔多斯", "大同", "宝鸡", "咸阳", "天水", "喀什", "丽江",
+    "香港", "澳门", "台北", "高雄", "台中",
+    "东京", "大阪", "京都", "札幌", "首尔", "釜山", "新加坡", "曼谷", "吉隆坡",
+    "雅加达", "马尼拉", "河内", "迪拜", "多哈", "孟买", "新德里",
+    "纽约", "洛杉矶", "旧金山", "西雅图", "芝加哥", "波士顿", "华盛顿", "拉斯维加斯",
+    "多伦多", "温哥华", "蒙特利尔", "墨西哥城",
+    "伦敦", "曼彻斯特", "爱丁堡", "巴黎", "柏林", "慕尼黑", "法兰克福", "罗马",
+    "米兰", "马德里", "巴塞罗那", "阿姆斯特丹", "布鲁塞尔", "苏黎世", "维也纳",
+    "斯德哥尔摩", "哥本哈根", "赫尔辛基", "莫斯科", "圣彼得堡", "伊斯坦布尔",
+    "悉尼", "墨尔本", "布里斯班", "珀斯", "奥克兰", "惠灵顿", "开罗", "开普敦",
+    "约翰内斯堡", "圣保罗", "里约热内卢", "布宜诺斯艾利斯", "利马",
+)
+
+# 城市名后面可能跟着的"话头"。正则拿它当分界：分界之前那 2~8 个字就是地名。
+# 「扬州下周会下雨吗」「宿迁冷不冷」这种以前抠不出来（旧正则只认"城市+天气"），
+# 于是 city 认不出 → 随机报一座城 —— 用户看到的就是"我问扬州，你答苏州"。
+_TQ_JIE = ("今天|明天|后天|现在|这周|下周|周末|这几天|未来几天|未来一周|"
+           "的?天气|的?气温|的?温度|多少度|几度|冷不冷|热不热|会不会下雨|"
+           "会下雨|下雨|下雪|降雨|带伞|穿什么|怎么样|如何|呢|吗")
+_TQ_CS_RE = re.compile(r"([\u4e00-\u9fa5]{2,8})(?=" + _TQ_JIE + ")")
+
+# 抠出来之后要削掉的头尾碎词（"那今天扬州" → "扬州"）
+_TQ_TOU = ("那么", "那", "请问", "帮我", "麻烦", "查一下", "查查", "查下", "看看",
+           "想知道", "问一下", "今天", "明天", "后天", "现在", "这周", "下周",
+           "周末", "未来几天", "未来一周", "这几天", "的")
+_TQ_WEI = ("会不会下雨", "会下雨", "下雨", "下雪", "降雨", "天气", "气温", "温度",
+           "多少度", "几度", "冷不冷", "热不热", "怎么样", "如何", "今天", "明天",
+           "后天", "现在", "这周", "下周", "周末", "未来几天", "未来一周", "这几天",
+           "有没有", "可能", "会", "要", "还", "的", "呢", "吗", "啊", "呀")
+
+# 上一次问的天气：城市 + 时间。"那明天呢""下周会下雨吗"全靠它接上下文。
+_TQ_SHANG = {"chengshi": "", "t": 0}
+
+
+def _zhao_chengshi(wenti, moren="北京", yunxu_shang=True):
+    """从一句话里认出城市名。返回 (城市, 是不是句子里明确点出来的)
+
+    三步：① 常见城市表（长的优先，避免"上海"抢先于"上海市"）；
+         ② 正则抠"XX天气 / XX下周下雨"；③ 都没有就看是不是追问上一句，
+            是就沿用上一座城；最后才用默认城市。
+    """
+    t = wenti or ""
+    for ming in sorted(TQ_CHENGSHI, key=len, reverse=True):
+        if ming and ming in t:
+            return ming, True
+    m = _TQ_CS_RE.search(t)
+    if m:
+        ci = m.group(1)
+        for _ in range(5):                 # 反复削，直到两头都不再有碎词
+            jiu = ci
+            for zang in _TQ_TOU:
+                if ci.startswith(zang):
+                    ci = ci[len(zang):]
+                    break
+            for zang in _TQ_WEI:
+                if ci.endswith(zang):
+                    ci = ci[:-len(zang)]
+                    break
+            ci = ci.strip(" 　的，,。？?！!")
+            if ci == jiu:
+                break
+        if 2 <= len(ci) <= 12:
+            return ci, True
+    if yunxu_shang:
+        shang = _TQ_SHANG.get("chengshi")
+        if shang and time.time() - _TQ_SHANG.get("t", 0) < 1800:
+            return shang, False
+    return (moren or "北京").strip() or "北京", False
+
+
+def _tq_genjin(text):
+    """「那明天呢」「扬州下周会下雨吗」—— 接着上一句天气问的追问
+
+    没有这道判断，"明天呢"会掉进闲聊层，模型不知道上一轮查的是哪座城，
+    只能现编一个温度。只在"刚问过天气（30 分钟内）"时才认，别的场合不插嘴。
+    """
+    t = (text or "").strip()
+    if not t or len(t) > 24:
+        return False
+    if not _TQ_SHANG.get("chengshi"):
+        return False
+    if time.time() - _TQ_SHANG.get("t", 0) > 1800:
+        return False
+    if any(k in t for k in ("天气", "下雨", "下雪", "降雨", "气温", "温度",
+                            "多少度", "几度", "冷不冷", "热不热", "带伞")):
+        return True
+    # 剩下的只认"明天呢 / 那后天呢 / 下周呢"这种干净的问法，
+    # 免得"明天考试"也被当成问天气
+    return bool(re.fullmatch(
+        r"[那这那么呢吗啊呀，,。？?！!\s]*(明天|后天|下周|这周|周末|这几天|未来几天)"
+        r"[呢吗啊呀吧？?。，,\s]*", t))
+
+
+def _tq_fanwei(wenti):
+    """这句话问的是哪几天 → (模式, 天序号)
+
+    'now'    先报实时，再报今天
+    'day'    只报第 n 天（明天 = 1，后天 = 2）
+    'days'   未来 7 天逐日列出来
+    'weekend' 这一周的周六周日
+    """
+    t = wenti or ""
+    if any(k in t for k in ("未来一周", "未来几天", "未来 7 天", "未来7天",
+                            "这周", "本周", "一周", "这几天", "下周")):
+        return "days", 7
+    if any(k in t for k in ("周末", "星期六", "周六", "星期日", "星期天", "周日")):
+        return "weekend", 7
+    if "后天" in t:
+        return "day", 2
+    if "明天" in t:
+        return "day", 1
+    return "now", 0
+
+
+TIANQI_WEN2 = ("天气", "气温", "温度", "多少度", "几度", "冷不冷",
+               "热不热", "下雨", "下雪", "带伞", "穿什么")
+
+
+def gongju_daan(wenti):
+    """这一句能不能由「工具」直接答上来；返回 (工具名, 答案) 或 ("", "")
+
+    为什么单独抽出来：**工具优先于人设**。
+    人设写着"她不玩游戏、不知道外面的事"，于是「王者射手玩什么」被她回成
+    「我不玩」—— 可程序明明有这个工具，资料就躺在 素材七_王者荣耀.txt 里。
+    人设管的是"她怎么说话"，不该管"她能知道什么"。
+
+    这一份给**联网模式**用（离线那边 shuohua() 自己会走同样几条判断）。
+    灵光拿到它以后，把资料交给模型"用自己的口气说出来"，
+    而不是把条目原文直接贴到气泡里 —— 那样一眼就是查表。
+
+    注意顺序：和 shuohua() 里保持一致，报时最前（"今天几号"不能被算数抢走）。
+    有状态副作用的（讲笑话会记住"上一条"）在这里也会执行一次，
+    所以只在真正要走工具时才调它。
+    """
+    text = str(wenti or "")
+    if not text.strip():
+        return "", ""
+    if is_time_question(text):
+        return "报时", look_time(text)
+    if is_joke_question(text):
+        return "笑话", tell_joke(text)
+    if is_food_question(text):
+        return "美食", tui_jian_meishi(text)
+    if is_wangzhe_question(text):
+        return "王者荣耀", jiang_wangzhe(text)
+    if is_calc_question(text):
+        return "算数", calculate(text)
+    try:
+        huan = huansuan(text)
+    except Exception:
+        huan = ""
+    if huan:
+        return "换算", huan
+    return "", ""
+
+
+def xiang_wen_tianqi(text):
+    """联网模式专用的"宽松版"天气判定。
+
+    为什么不用原来的 is_weather_question：那是给规则引擎用的，故意定得很严 ——
+    引擎一旦把"我心情跟天气一样"拉去报天气，就答非所问了，所以它要求
+    "天气+疑问词"同时出现，连"北京天气"这种最常见的说法都不认。
+    联网时情况相反：模型本来就不知道今天几度，宁可多问一次接口。
+
+    但也不能太松（"今天天气不错啊"不该去查实时天气），所以再加一道：
+    要么句子里点了城市名，要么带"要数据"的词（几度/冷不冷/下雨/带伞…），
+    要么带明确的询问（怎么样/如何/多少/查一下/报一下）。
+    """
+    text = text or ""
+    if not any(ci in text for ci in TIANQI_WEN2):
+        return False
+    for hang in TIANQI:
+        if hang and hang[0] and hang[0] in text:
+            return True
+    if any(ci in text for ci in ("多少度", "几度", "冷不冷", "热不热",
+                                 "下雨", "下雪", "带伞", "穿什么")):
+        return True
+    return any(ci in text for ci in ("怎么样", "如何", "多少", "查一下",
+                                     "查查", "报一下", "查下"))
+
+
+# 城市 → (取的时间, 坐标, 天气)。同一座城 10 分钟内重复问直接用上一次的结果：
+# 第一次要 1~3 秒（两次请求），命中缓存是 0 秒。
+# 不缓存一整天：天气每小时都在变，"今天的最高温"早上和下午不是一个数。
+_TQ_CUN = {}
+TQ_CUN_MIAO = 600
+_DIMING_CUN = {}          # 城市 → (纬度, 经度)，地名不会变，永久缓存
+
+
+# 国外城市的中文名 → 英文名。
+# 为什么需要：open-meteo 的地理编码只认拉丁字母，"纽约""伦敦"查不到，
+# 只能退到 wttr.in（要 5~9 秒）。换成英文名再查 open-meteo，1 秒内就回来。
+TQ_WAI_ALIAS = {
+    "东京": "Tokyo", "大阪": "Osaka", "京都": "Kyoto", "札幌": "Sapporo",
+    "首尔": "Seoul", "釜山": "Busan", "新加坡": "Singapore", "曼谷": "Bangkok",

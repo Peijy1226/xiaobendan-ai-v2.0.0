@@ -700,3 +700,269 @@ class Qiao:
             # wuti 是 6 元组 (x,y,w,h,类别,分数)，只挑 person
             ren = [(int(a), int(b), int(a + c), int(b + d), "person", f)
                    for a, b, c, d, lei, f in (wuti or []) if lei == "person"]
+            # 没有 person 框但有脸 → 用脸推一个身体框（旧版也是这么兜的）
+            if not ren and lian:
+                fx, fy, fw, fh, ff = lian[0]
+                ren = [(int(fx - fw * 1.6), int(fy - fh * 0.6),
+                        int(fx + fw * 2.6), int(fy + fh * 6.0), "person", ff)]
+
+            if not ren:
+                wen = "（这张图里没找到人）"
+                buchong = self._kan_tu_llm(lu, "看穿搭")
+                if buchong:
+                    return {"ok": True, "wen": buchong, "kuang": [],
+                            "laiyuan": "联网大模型"}
+                return {"ok": True, "wen": wen, "kuang": [],
+                        "laiyuan": "本地配色分析"}
+
+            try:
+                jie, cuo = shitu.miaoshu_chuanda(im, ren, wuti, lian)
+            except Exception as e:
+                return {"ok": False, "cuo": "看穿搭失败：%s" % e}
+            if cuo:
+                return {"ok": False, "cuo": cuo}
+            wen = "\n".join(jie) if jie else "（看不出什么）"
+            hua = [{"x": int(a), "y": int(b), "w": int(c - a), "h": int(d - b),
+                    "ming": "人", "ren": True} for a, b, c, d, _, _ in ren]
+            buchong = self._kan_tu_llm(lu, "看穿搭")
+            if buchong:
+                return {"ok": True, "wen": wen + "\n\n" + buchong,
+                        "kuang": hua, "laiyuan": "本地配色 + 大模型描述"}
+            return {"ok": True, "wen": wen, "kuang": hua,
+                    "laiyuan": "本地配色分析"}
+
+        return {"ok": False, "cuo": "不认识这个操作：%s" % zenme}
+
+    def _kan_tu_llm(self, lu, zenme):
+        """让多模态大模型看图。没有钥匙 / 没网 / 不支持视觉，都返回空串。
+
+        为什么单开一个函数：这是个"有就用、没有就算"的增强，
+        不该跟主流程纠缠。失败一律静默返回空串，调用方自然退回本地模型。
+        """
+        import base64
+        import json
+        import urllib.request
+        try:
+            pei = luoji.du_api_peizhi()
+            key = str(pei.get("api_key", "")).strip()
+            if not key:
+                return ""
+            # 图太大就缩一下：视觉接口按像素计费，2000px 长边足够
+            try:
+                from PIL import Image
+                im = Image.open(lu).convert("RGB")
+                if max(im.size) > 2000:
+                    bi = 2000.0 / max(im.size)
+                    im = im.resize((int(im.width * bi), int(im.height * bi)),
+                                   Image.LANCZOS)
+                buf = os.path.join(os.path.dirname(lu), "_tmp_kan.jpg")
+                im.save(buf, "JPEG", quality=86)
+                with open(buf, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("ascii")
+                try:
+                    os.remove(buf)
+                except Exception:
+                    pass
+            except Exception:
+                with open(lu, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("ascii")
+
+            if zenme == "提字":
+                wenda = ("把这张图里的文字全部照原样抄下来，不要翻译、不要解释、"
+                         "不要加任何说明。没字就回「没有文字」。")
+            elif zenme == "描述":
+                wenda = ("用两句中文说这张图里有什么：谁、在做什么、什么东西。"
+                         "口语一点，不要分点，不要客套，不要提「图片」这个词。")
+            else:
+                wenda = ("用中文详细描述这张图里这个人的穿着打扮：上装、下装、鞋子、"
+                         "配饰、颜色、风格。两三句话，口语一点，不要分点，不要客套。")
+
+            ti = {
+                "model": str(pei.get("model", "deepseek-flash")),
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": wenda},
+                        {"type": "image_url",
+                         "image_url": {"url": "data:image/jpeg;base64," + b64}},
+                    ],
+                }],
+                "max_tokens": 700,
+                "stream": False,
+            }
+            req = urllib.request.Request(
+                str(pei.get("base_url", "https://api.deepseek.com")).rstrip("/")
+                + "/chat/completions",
+                data=json.dumps(ti, ensure_ascii=False).encode("utf-8"),
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer " + key})
+            with urllib.request.urlopen(req, timeout=40) as r:
+                jie = json.loads(r.read().decode("utf-8", "replace"))
+            return (jie["choices"][0]["message"]["content"] or "").strip()
+        except Exception as e:
+            # 静默降级：可能在控制台看一眼原因，用户看不到
+            print("[api] 大模型看图失败（退回本地）：%s" % e)
+            return ""
+
+    # ---------- ③ 写一篇 ----------
+    def xie_yi_pian(self, timu, ticai):
+        """写作文。联网走大模型，没网套模板。
+
+        返回 {ok, wen, zi, laiyuan}
+        """
+        timu = (timu or "").strip()
+        if not timu:
+            return {"ok": False, "cuo": "先填个题目。"}
+        ticai = ticai or "随便"
+
+        pei = luoji.du_api_peizhi()
+        if luoji.api_youxiao(pei):
+            try:
+                hui, cuo = luoji.diaoyong_llm(
+                    "体裁：%s\n题目：%s\n请写一篇 100~200 字的作文。" % (ticai, timu),
+                    [], self._qingxu.haogan, self._qingxu.dangqian, pei,
+                    xitong=xiezuo.xiezuo_xitong(200), yao_jian_cha=False)
+                if hui:
+                    wen, zi = xiezuo.xiezuo_zhengli(hui, 200)
+                    return {"ok": True, "wen": wen, "zi": zi, "laiyuan": "联网大模型"}
+                print("[api] 写作文失败：%s" % cuo)
+            except Exception as e:
+                print("[api] 写作文异常：%s" % e)
+
+        wen, zi = xiezuo.xiezuo_lixian(timu, ticai)
+        return {"ok": True, "wen": wen, "zi": zi,
+                "laiyuan": "离线模板（没联网或钥匙没填）"}
+
+    # ---------- ④ 整理助手 ----------
+    def zhengli_kai_guan(self, kai=None):
+        """开关。不传就当"查状态"。
+
+        【为什么不给默认开】这是全程序唯一会移动用户文件的功能。
+        旧版也是默认关着，点「开启」才生效 —— 这条规矩不能松。
+        """
+        try:
+            if kai is not None:
+                zhengli.zl_xie_kai(bool(kai))
+            return {"kai": bool(zhengli.zl_du_kai()),
+                    "jia": zhengli.zl_yanshi_lu(),
+                    "shangxian": "%d 个 / %d MB"
+                                % (zhengli.ZL_ZUI_DUO,
+                                   zhengli.ZL_ZUI_DA // 1048576)}
+        except Exception as e:
+            return {"kai": False, "jia": "", "cuo": str(e)}
+
+    def zhengli_sao(self, leixing="全部"):
+        """扫演示夹。没开开关 / 夹子是空的，都返回一句人话，不报错。"""
+        try:
+            if not zhengli.zl_du_kai():
+                return {"ok": False, "cuo": "整理助手现在关着。先点「开启整理助手」。"}
+
+            # 夹子空的时候造几个演示文件 —— 旧版 zl_zhunbei_yanshi 就是这个用途
+            if zhengli.zl_yanshi_kong():
+                ok, xinxi = zhengli.zl_zhunbei_yanshi()
+                if not ok:
+                    return {"ok": False, "cuo": xinxi}
+
+            dong = zhengli.zl_lie(zhengli.zl_yanshi_lu(), leixing or "全部")
+            zong = sum(x["da"] for x in dong)
+            if len(dong) > zhengli.ZL_ZUI_DUO:
+                dong = dong[:zhengli.ZL_ZUI_DUO]
+                tishi = ("文件比 %d 个多，这次只列前 %d 个。"
+                         % (zhengli.ZL_ZUI_DUO, zhengli.ZL_ZUI_DUO))
+            else:
+                tishi = ""
+            return {"ok": True,
+                    "dong": [{"lu": x["lu"], "ming": x["ming"],
+                              "daxiao": x["da"]} for x in dong],
+                    "zong": zong, "tishi": tishi}
+        except Exception as e:
+            return {"ok": False, "cuo": "扫不了：%s" % e}
+
+    def zhengli_zhi_xing(self, wenjian):
+        """执行移动（到回收站）。
+
+        【只在用户明确点了确认之后才调到这里】前端那一步是"点了按钮"，
+        不是"打开页面"。所以这里不再二次确认 —— 但函数内部仍会走
+        zl_weixian 的四道闸（快捷方式 / 程序自己 / 系统目录 / 白名单）。
+        """
+        try:
+            if not zhengli.zl_du_kai():
+                return {"ok": False, "cuo": "整理助手现在关着。"}
+            if not wenjian:
+                return {"ok": False, "cuo": "没选文件。"}
+            hao, huai, shuo = zhengli.zl_zhi_xing(list(wenjian))
+            if shuo:
+                return {"ok": False, "cuo": shuo}
+            beizhu = ""
+            if huai:
+                beizhu = "跳过 %d 个：\n%s" % (
+                    len(huai),
+                    "\n".join("· %s  %s" % (os.path.basename(p), li)
+                              for p, li in huai[:5]))
+            return {"ok": True, "cheng": len(hao), "beizhu": beizhu}
+        except Exception as e:
+            return {"ok": False, "cuo": "执行失败：%s" % e}
+
+    def zhengli_da_kai(self):
+        """打开演示夹（资源管理器）"""
+        try:
+            zhengli.zl_dakai_mulu(zhengli.zl_yanshi_lu())
+            return True
+        except Exception as e:
+            print("[api] 打开演示夹失败 %s" % e)
+            return False
+
+    # ---------- ⑤ 打赏 ----------
+    def da_shang(self, dang):
+        """打赏一档。只加好感度，不连任何支付。
+
+        返回 {ok, wen, haogan, biao, tou, zhuangtai}
+        """
+        import random
+        from core import dashang as ds
+        try:
+            zhi = None
+            for shu, biao, jia, hui in ds.DASHANG_DANG:
+                if biao.split()[0] == str(dang) or str(shu) == str(dang):
+                    zhi = (shu, biao, jia, hui)
+                    break
+            if not zhi:
+                return {"ok": False, "cuo": "没有这个档位。"}
+
+            shu, biao, jia, hui = zhi
+            with self._suo:
+                qian = self._qingxu.haogan
+                self._qingxu._jia_haogan(jia)
+                zeng = self._qingxu.haogan - qian
+                tidu = ds.DASHANG_TAIDU.get(shu, ("", ""))
+                xiao = random.choice([x for x in tidu if x])
+                wen = "%s\n%s" % (hui, xiao)
+                if zeng == 0:
+                    wen += "\n（好感度已经满了）"
+                self._ji("[打赏] " + biao, wen, self._biao_ti())
+
+            # 收礼就该是一张"开心/害羞"的脸，别用当前的平静。
+            # 第一版传了 changjing="love"，结果挑到「恋人.png」——
+            # 好感 63 就贴恋人图，不合时宜。
+            tou = ""
+            try:
+                p = luoji.bq_xuan("开心", self._qingxu.lianren,
+                                  self._lingguang, "")
+                if p:
+                    tou = os.path.basename(p)
+            except Exception:
+                pass
+            return {"ok": True, "wen": wen, "haogan": self._qingxu.haogan,
+                    "biao": self._biao_ti(), "tou": tou,
+                    "zhuangtai": self.zhuang_tai()}
+        except Exception as e:
+            return {"ok": False, "cuo": "没打赏成：%s" % e}
+
+    # ---------- ⑥ 壁纸 ----------
+    def dang_qian_bi_zhi(self):
+        """现在用的壁纸。前端启动时问一次，好把网格里的选中态对上。"""
+        try:
+            lu = luoji._du_bizhi() if hasattr(luoji, "_du_bizhi") else None
+        except Exception:
+            lu = None
+        return {"lu": (lu or "素材/壁纸/xiaobendan.mp4"),
