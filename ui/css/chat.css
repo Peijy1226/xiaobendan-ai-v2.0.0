@@ -372,3 +372,159 @@
 /* 灰猫耳朵 */
 .qi-pao.mao.ta .qp-er .er-wai {
   fill: #e3e7eb;
+  stroke: rgba(182, 190, 200, 0.55);
+  stroke-width: 1.4;
+}
+
+/* 内耳：下半段偏粉的一小块（旧版掺 52% 白） */
+.qi-pao.mao .qp-er .er-nei {
+  fill: rgba(255, 255, 255, 0.52);
+}
+
+/* 爪子：18×11 椭圆，探出身子下沿 */
+.qi-pao.mao .qp-zhua {
+  width: 18px;
+  height: 11px;
+  bottom: -5px;
+  border-radius: 50%;
+  background: #d5975d;
+  border: 1.1px solid rgba(200, 129, 63, 0.51);          /* 130/255 */
+}
+
+.qi-pao.mao .qp-zhua.zuo { left: 26%; }
+.qi-pao.mao .qp-zhua.you { right: 26%; }
+
+/* ---- 她那一侧：灰猫 ---- */
+.qi-pao.mao.ta .qp-shen {
+  background: linear-gradient(180deg, #e3e7eb 0%, #cdd1d5 100%);
+  border-color: rgba(182, 190, 200, 0.55);
+}
+
+.qi-pao.mao.ta .qp-zhua {
+  background: #cdd1d5;
+  border-color: rgba(182, 190, 200, 0.51);
+}
+
+/* 灰猫身子太亮，柔光要压一点，否则上半截发白 */
+.qi-pao.mao.ta .qp-shen::before {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* ============================================================================
+   ② 圆角
+   旧版（7043-7071 行）：渐变 + 顶部 38% 高光 30/255 + 1px 描边
+   （亮底配深边 86/255，暗底配白边 96/255）
+   ========================================================================== */
+.qi-pao.yuan .qp-shen {
+  background: linear-gradient(180deg, #e1e5ea 0%, #d4d8dc 100%);
+  border: 1.2px solid rgba(107, 118, 130, 0.34);
+  box-shadow:
+    0 3px 3.2px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13);
+  overflow: hidden;
+}
+
+/* 顶沿细高光：上半 38% 铺 30/255 白 */
+.qi-pao.yuan .qp-shen::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 2px;
+  height: 38%;
+  background: rgba(255, 255, 255, 0.118);
+  border-radius: 12px;
+  filter: blur(2px);
+}
+
+/* 我这一侧：橘色 */
+.qi-pao.yuan.wo .qp-shen {
+  background: linear-gradient(180deg, #eaaa70 0%, #dc9c60 100%);
+  border-color: rgba(150, 105, 55, 0.34);
+}
+
+/* 圆角样式没有耳朵和爪子 */
+.qi-pao.yuan .qp-er,
+.qi-pao.yuan .qp-zhua {
+  display: none;
+}
+
+/* ============================================================================
+   ③ 透光（真背景模糊）
+   旧版做法（7073-7121 行）：
+     取气泡正后方那块壁纸 → 高斯模糊 8px → 亮度 ×1.04 → 饱和 ×1.12
+     → 掺 6% 白 → 保留 90% 不透明 → 1.3px 白边 168/255 → 顶沿 198/255 亮线
+   新版：backdrop-filter 一行，且是实时的 —— 壁纸一动它就跟着动，
+   这是旧版 PIL 位图做不到的（旧版靠 0.6 秒一次的重绘硬撑）。
+   ========================================================================== */
+.qi-pao.tou-guang .qp-shen {
+  background: rgba(255, 255, 255, 0.06);              /* 只掺 6% 白 */
+  backdrop-filter: blur(12px) brightness(1.04) saturate(1.12);
+  -webkit-backdrop-filter: blur(12px) brightness(1.04) saturate(1.12);
+  border: 1.3px solid rgba(255, 255, 255, 0.66);      /* 168/255 */
+  box-shadow:
+    0 3px 3.2px rgba(0, 0, 0, 0.17),                  /* 44/255，比别套淡 */
+    inset 0 1px 0 rgba(255, 255, 255, 0.30);
+  overflow: hidden;
+}
+
+/* 顶沿更亮的一条：玻璃的边缘反光（旧版单独画了 198/255 的 1px 线） */
+.qi-pao.tou-guang .qp-shen::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 0.5px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+/* 磨砂面的薄雾：上半 52% 铺 26/255 白，模糊 3px —— 玻璃才有厚度 */
+.qi-pao.tou-guang .qp-shen::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 2px;
+  height: 52%;
+  background: rgba(255, 255, 255, 0.102);
+  border-radius: 12px 12px 4px 4px;
+  filter: blur(3px);
+}
+
+/* 字色：旧版按身后亮度自动切（_di_wen_se，阈值 108）。
+   实测这张壁纸对话区平均亮度 78.4 < 108 → 用浅字。
+   换壁纸时由 chat.js 重算一次。 */
+.qi-pao.tou-guang {
+  color: #f4f8ff;
+}
+
+.qi-pao.tou-guang.liang {
+  color: #1e2836;
+}
+
+.qi-pao.tou-guang .qp-er,
+.qi-pao.tou-guang .qp-zhua {
+  display: none;
+}
+
+/* ============================================================================
+   旁白 / 系统提示
+   旁白：#93a4b8 斜体 13px（max(9, 11-1) 点）
+   系统：#6fd3c7 13px 居中
+   ========================================================================== */
+.pang-bai {
+  font-size: var(--zt-pangbai);
+  line-height: 18px;
+  color: var(--se-dan);
+  font-style: italic;
+  padding: 0 8px;
+  margin-bottom: 5px;
+  position: relative;
+  z-index: 10;
+}
+
+.xi-tong {
+  font-size: var(--zt-xitong);
+  line-height: 18px;
+  color: #6fd3c7;
