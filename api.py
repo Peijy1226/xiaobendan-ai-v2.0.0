@@ -966,3 +966,253 @@ class Qiao:
         except Exception:
             lu = None
         return {"lu": (lu or "素材/壁纸/xiaobendan.mp4"),
+                "lei": "img" if (lu or "").lower().endswith(
+                    (".jpg", ".jpeg", ".png", ".bmp", ".webp")) else "video"}
+
+    def huan_bi_zhi(self, lu, shi_shi_pin):
+        """换壁纸：记下来（下次打开还是它）+ 前端自己换 <video>/<img>。"""
+        try:
+            if hasattr(luoji, "_ji_bizhi"):
+                luoji._ji_bizhi(lu)
+        except Exception as e:
+            print("[api] 记壁纸失败 %s" % e)
+        return {"ok": True}
+
+    def xuan_bi_zhi(self):
+        """选一个视频或图片当壁纸，复制进 ui/素材/壁纸/"""
+        import shutil
+        import time as _t
+        try:
+            r = self._chuang.create_file_dialog(
+                webview.FileDialog.OPEN, allow_multiple=False,
+                file_types=('视频 (*.mp4;*.webm;*.mov;*.mkv;*.avi)',
+                            '图片 (*.png;*.jpg;*.jpeg;*.bmp;*.webp)',
+                            '所有文件 (*.*)'))
+        except Exception as e:
+            return {"ok": False, "cuo": "打不开对话框：%s" % e}
+        if not r:
+            return {"ok": False, "cuo": ""}
+        lu = r[0]
+        ext = os.path.splitext(lu)[1].lower()
+        mu = os.path.join(luoji.DIR, "素材", "壁纸")
+        try:
+            os.makedirs(mu, exist_ok=True)
+            ming = "bz_%d%s" % (int(_t.time() * 1000), ext)
+            shutil.copy2(lu, os.path.join(mu, ming))
+        except Exception as e:
+            return {"ok": False, "cuo": "复制失败：%s" % e}
+        shipin = ext in (".mp4", ".webm", ".mov", ".mkv", ".avi")
+        return {"ok": True, "lu": "素材/壁纸/" + ming, "url": "素材/壁纸/" + ming,
+                "ming": os.path.basename(lu),
+                "lei": "video" if shipin else "img"}
+
+    # ---------- ⑩ 记忆 ----------
+    def ji_yi(self):
+        """她记住的东西（记忆_重要的事.json）"""
+        try:
+            d = luoji.du_zhongyao() or {}
+            return {"ok": True, "dong": d}
+        except Exception as e:
+            return {"ok": False, "dong": {}, "cuo": str(e)}
+
+    def qing_ji_yi(self):
+        """清空记忆档案（不动对话）"""
+        try:
+            luoji.xie_zhongyao({})
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "cuo": str(e)}
+
+    # ---------- ⑨ 灵光钥匙 ----------
+    def cun_yao_shi(self, kai):
+        """存钥匙（写 ui/API.txt），顺手试一次看通不通"""
+        kai = (kai or "").strip()
+        if not kai:
+            return {"ok": False, "cuo": "钥匙是空的。"}
+        try:
+            pei = luoji.du_api_peizhi()
+            luoji.xie_api_peizhi({"api_key": kai})
+            self._pei = luoji.du_api_peizhi()
+            shi = False
+            try:
+                ok, _shuo = luoji.ce_lingguang(
+                    kai, pei.get("base_url"), pei.get("model"), 12)
+                shi = bool(ok)
+                if ok:
+                    self._lingguang = True
+            except Exception:
+                pass
+            return {"ok": True, "shi": shi}
+        except Exception as e:
+            return {"ok": False, "cuo": str(e)}
+
+    def da_kai_ge_xing_hua(self):
+        """打开 ui/个性化/（放她的头像）"""
+        try:
+            mu = os.path.join(luoji.DIR, "个性化")
+            os.makedirs(mu, exist_ok=True)
+            os.startfile(mu)
+            return True
+        except Exception as e:
+            print("[api] 打开个性化失败 %s" % e)
+            return False
+
+    # ---------- ⑧ 个性化：双头像 ----------
+    def xuan_tou(self, shui):
+        """选一张图当头像。shui = "ta"（她）或 "wo"（我）
+
+        存成 256×256 的 PNG（tou_cun 做居中裁方 + LANCZOS 缩放）。
+        【为什么必须裁方】头像是圆形蒙版，不裁方的话长图会被拉扁。
+        """
+        try:
+            r = self._chuang.create_file_dialog(
+                webview.FileDialog.OPEN, allow_multiple=False,
+                file_types=('图片 (*.png;*.jpg;*.jpeg;*.bmp;*.webp)',))
+        except Exception as e:
+            return {"ok": False, "cuo": "打不开对话框：%s" % e}
+        if not r:
+            return {"ok": False, "cuo": ""}
+        try:
+            shui = "ta" if shui == "ta" else "wo"
+            # 【返回值是元组】tou_cun 返回 (True, 路径) 或 (False, 原因)，
+            # 直接 if not ok 恒为假（元组非空就是真），解包才对。
+            jieguo = luoji.tou_cun(r[0], shui)
+            cheng = jieguo[0] if isinstance(jieguo, tuple) else bool(jieguo)
+            if not cheng:
+                li = jieguo[1] if isinstance(jieguo, tuple) and len(jieguo) > 1 else ""
+                return {"ok": False, "cuo": "存不下这张图%s"
+                        % ("：" + str(li) if li else "（格式或权限问题）")}
+            return {"ok": True, "shui": shui,
+                    "url": "个性化/%s?v=%d" % (
+                        luoji.TOU_MING[shui], int(__import__("time").time()))}
+        except Exception as e:
+            return {"ok": False, "cuo": "存头像失败：%s" % e}
+
+    def tou_zhuang_tai(self):
+        """两个头像现在是什么状态：有没有自定义图、URL 带时间戳防缓存"""
+        import time as _t
+        out = {}
+        for shui in ("ta", "wo"):
+            you = False
+            try:
+                you = bool(luoji.tou_you(shui))
+            except Exception:
+                pass
+            out[shui] = {
+                "you": you,
+                "url": ("个性化/%s?v=%d" % (luoji.TOU_MING[shui],
+                                            int(_t.time()) if you else 0))
+                       if you else "",
+            }
+        return out
+
+    def shan_tou(self, shui):
+        """删掉自定义头像，退回画的猫脸"""
+        try:
+            shui = "ta" if shui == "ta" else "wo"
+            luoji.tou_shan(shui)
+            return {"ok": True, "shui": shui}
+        except Exception as e:
+            return {"ok": False, "cuo": str(e)}
+
+    # ---------- 七 · 语音 ----------
+    def yin_zhuang_tai(self):
+        """语音开着没。默认关 —— 突然说话会吓人。"""
+        try:
+            return {"kai": bool(luoji.tts_du_kai()),
+                    "you": self._you_tts()}
+        except Exception:
+            return {"kai": False, "you": False}
+
+    def kai_yin(self, kai):
+        try:
+            luoji.tts_xie_kai(bool(kai))
+            return {"ok": True, "kai": bool(kai), "you": self._you_tts()}
+        except Exception as e:
+            return {"ok": False, "cuo": str(e)}
+
+    def nian(self, wenben):
+        """合成一句语音，返回可以给 <audio> 播的相对 URL
+
+        【为什么返回 URL 而不是直接播】合成要 3~4 秒（edge-tts 走网络），
+        在这边播会卡住接口。交给浏览器的 <audio> 播，主线程不堵。
+        """
+        import time as _t
+        wenben = (wenben or "").strip()
+        if not wenben:
+            return {"ok": False, "cuo": "没有要念的字。"}
+        try:
+            lu, cuo = luoji.tts_hecheng(wenben, 20, self._qingxu.dangqian)
+            if not lu:
+                return {"ok": False, "cuo": cuo or "合成失败"}
+            # 缓存目录在 ui/语音缓存/，转成 http 相对路径
+            xiang = os.path.relpath(lu, luoji.DIR).replace("\\", "/")
+            return {"ok": True, "url": xiang + "?v=%d" % int(_t.time())}
+        except Exception as e:
+            return {"ok": False, "cuo": "念不出来：%s" % e}
+
+    @staticmethod
+    def _you_tts():
+        try:
+            import edge_tts  # noqa: F401
+            return True
+        except Exception:
+            return False
+
+    # ---------- 七·一 · 功能页玻璃参数（可调） ----------
+    # 存成 ui/个性化/玻璃.txt，一行一个值：模糊|饱和|亮度|底色透明度
+    # 【默认值为什么从 42px 降到 22px】
+    # 42px 是早期按"面板内亮度和面板外的差值"选出来的 ——
+    # 那个指标只衡量"透不透"，没衡量"糊不糊"。
+    # 用户第一句反馈就是"模糊程度还是太高了"。
+    # 重新量了五档（帮助页文字做靶）：
+    #   blur 42 底0.19 → 透亮度 4.4  文字对比 18297   ← 太糊，字发虚
+    #   blur 24 底0.19 →  5.7       18562
+    #   blur 22 底0.26 →  5.8       20271         ← 取这组
+    #   blur 20 底0.30 →  5.9       22431
+    #   blur 18 底0.34 →  6.1       23762         ← 更清楚，但底部开始像块板
+    # 22px + 0.26 底：透亮度比 42px 高 32%，文字对比高 11%，还不像板。
+    _BOLI_MOREN = (22, 175, 112, 26)     # 22px / 1.75 / 1.12 / 0.26
+
+    def _boli_lu(self):
+        return os.path.join(luoji.DIR, "个性化", "玻璃.txt")
+
+    def du_bo_li(self):
+        """读玻璃参数。返回 {mo, bao, liang, di}（都是整数，前端自己格式化）"""
+        mo, bao, liang, di = self._BOLI_MOREN
+        try:
+            with open(self._boli_lu(), encoding="utf-8") as f:
+                hang = (f.read() or "").replace("\n", " ").split()
+            if len(hang) >= 4:
+                mo = max(0, min(80, int(float(hang[0]))))
+                bao = max(100, min(260, int(float(hang[1]))))
+                liang = max(70, min(140, int(float(hang[2]))))
+                di = max(0, min(80, int(float(hang[3]))))
+        except Exception:
+            pass
+        return {"mo": mo, "bao": bao, "liang": liang, "di": di}
+
+    def cun_bo_li(self, mo, bao, liang, di):
+        """存玻璃参数。范围在服务端再夹一次 —— 前端滑块被改也不怕"""
+        try:
+            mo = max(0, min(80, int(mo)))
+            bao = max(100, min(260, int(bao)))
+            liang = max(70, min(140, int(liang)))
+            di = max(0, min(80, int(di)))
+            mu = os.path.join(luoji.DIR, "个性化")
+            os.makedirs(mu, exist_ok=True)
+            with open(self._boli_lu(), "w", encoding="utf-8") as f:
+                f.write("%d %d %d %d\n" % (mo, bao, liang, di))
+            return {"ok": True, "mo": mo, "bao": bao, "liang": liang, "di": di}
+        except Exception as e:
+            return {"ok": False, "cuo": str(e)}
+
+    def bo_li_chong_zhi(self):
+        """恢复默认（实测选出来的那组）"""
+        mo, bao, liang, di = self._BOLI_MOREN
+        return self.cun_bo_li(mo, bao, liang, di)
+
+    # ---------- 七·二 · 语音输入 ----------
+    def yin_shu_zhuang_tai(self):
+        """语音输入能不能用：模型在不在、麦克风有没有"""
+        try:
