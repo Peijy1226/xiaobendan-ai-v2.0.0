@@ -464,3 +464,384 @@ def _zl_mingling_hang(lu_qingdan):
             huai.append((lu, li))
             zl_rizhi("跳过\t%s\t%s" % (lu, li))
             continue
+        ok, li = _zl_song_huishouzhan(lu)
+        if ok:
+            print("        √ 已移入回收站")
+            hao.append(lu)
+            zl_rizhi("移到回收站\t%s" % lu)
+        else:
+            print("        × 失败：%s" % li)
+            huai.append((lu, li))
+            zl_rizhi("失败\t%s\t%s" % (lu, li))
+        try:                                   # 一个一个写，中途被关窗也留得下
+            with open(ZL_JIEGUO, "a", encoding="utf-8") as f:
+                if ok:
+                    f.write("OK\t%s\n" % lu)
+                else:
+                    f.write("ERR\t%s\t%s\n" % (lu, li))
+        except Exception:
+            pass
+
+    print("-" * 58)
+    print("成功 %d 个，失败 %d 个" % (len(hao), len(huai)))
+    print("正在打开回收站……（删了的东西都在那儿，右键「还原」就能回去）")
+    zl_dakai_huishouzhan()
+    print("")
+    # 只有"真开着控制台、且没人把输入接走"才等人按键：
+    #   · 窗口化 exe：sys.stdin 是 None —— 这时**要等**，否则窗口一闪而过老师看不见
+    #   · 真终端（python 小笨蛋.py）：stdin 是 tty —— 要等
+    #   · 被管道接走（测试/自动化）：stdin 是 pipe —— 不等，否则白等 20 秒
+    deng = 0
+    try:
+        _bd = sys.stdin
+    except Exception:
+        _bd = None
+    try:
+        if you_kongzhi and (_bd is None or _bd.isatty()):
+            deng = ZL_CHUANGKOU_MIAO
+    except Exception:
+        deng = 0
+    if not deng:
+        return 0
+    print("按任意键关闭窗口（%d 秒后自动关）" % deng)
+    # 不阻塞太久：既能留给人看一眼，也不至于把窗口一直挂在那儿
+    jiezhi = time.time() + deng
+    while time.time() < jiezhi:
+        try:
+            import msvcrt
+            if msvcrt.kbhit():
+                msvcrt.getwch()
+                break
+        except Exception:
+            break
+        time.sleep(0.2)
+    return 0
+
+
+def zl_zhi_xing(wenjian, ding=None):
+    """执行一批 —— 返回 (成功的, 失败的[(路径, 原因)], 拦下来的说明)
+
+    数量、大小两道闸在这里；每个文件执行前再走一次 zl_weixian（列清单到
+    点确认之间，用户完全可能在资源管理器里把文件挪走或换成快捷方式）。
+    ding 里的路径是"用户亲手挑的"（指定删除），不再要求必须在演示夹里。
+    """
+    hao, huai = [], []
+    if not wenjian:
+        return hao, huai, "一个都没选"
+    if len(wenjian) > ZL_ZUI_DUO:
+        return hao, huai, ("一次最多动 %d 个文件，这次选了 %d 个"
+                           % (ZL_ZUI_DUO, len(wenjian)))
+    zong = 0
+    for lu in wenjian:
+        try:
+            zong += os.path.getsize(lu)
+        except Exception:
+            pass
+    if zong > ZL_ZUI_DA:
+        return hao, huai, ("一次最多 %s，这次是 %s"
+                           % (zl_daxiao(ZL_ZUI_DA), zl_daxiao(zong)))
+    qin = set()
+    for p in (ding or ()):
+        try:
+            qin.add(os.path.normcase(os.path.abspath(p)))
+        except Exception:
+            pass
+    for lu in wenjian:
+        neng, li = zl_weixian(lu, os.path.normcase(os.path.abspath(lu)) in qin)
+        if not neng:
+            huai.append((lu, li))
+            zl_rizhi("跳过\t%s\t%s" % (lu, li))
+            continue
+        ok, li = _zl_song_huishouzhan(lu)
+        if ok:
+            hao.append(lu)
+            zl_rizhi("移到回收站\t%s" % lu)
+        else:
+            huai.append((lu, li))
+            zl_rizhi("失败\t%s\t%s" % (lu, li))
+    return hao, huai, ""
+
+
+def zl_rizhi(hang):
+    """往「整理日志.txt」记一笔（追加，不覆盖）"""
+    try:
+        with open(ZL_RIZHI, "a", encoding="utf-8") as f:
+            f.write("%s\t%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), hang))
+    except Exception:
+        pass
+
+
+def zl_yanshi_lu():
+    """演示夹的路径 —— 白名单里名字带「演示」的那一条
+
+    【为什么不写 zl_baimingdan()[2]】第二十九轮把桌面/下载从白名单删掉之后，
+    下标 2 就不存在了 —— 「打开演示夹」「准备演示文件」「新建文本」全部报
+    `tuple index out of range`（用户看到的就是"这个动作没做成"）。
+    改成按名字找，白名单以后再增删也不会错位。
+    """
+    bai = zl_baimingdan()
+    for ming, lu in bai:
+        if "演示" in ming:
+            return lu
+    return bai[0][1] if bai else os.path.join(os.path.expanduser("~"), "小笨蛋演示夹")
+
+
+def zl_yanshi_kong():
+    """演示夹是不是不存在、或者空着？
+
+    为什么要有这个：原来只判 `not os.path.isdir(mu)`，可"目录存在但里面
+    一个文件都没有"时它返回 False —— 于是不造文件，用户点「打开演示夹」
+    看到的是一个空文件夹，点「扫描」扫到 0 个，连"移到回收站"按钮都不出现。
+    （实测就是这个现象：目录被某次操作建出来了，但文件没写进去。）
+    """
+    mu = zl_yanshi_lu()
+    if not os.path.isdir(mu):
+        return True
+    try:
+        return not [n for n in os.listdir(mu) if not n.startswith(".")]
+    except Exception:
+        return True
+
+
+def zl_dakai_mulu(mu):
+    """在资源管理器里打开一个文件夹 —— 「准备演示文件」之后要让用户看见文件
+
+    和回收站那个同一个入口（ShellExecuteW），返回值 ≤ 32 就是没打开。
+    路径不存在也照样交给系统：它会弹"找不到"，比我们自己判断更准。
+    """
+    try:
+        import ctypes
+        r = ctypes.windll.shell32.ShellExecuteW(None, "open", mu, None, None, 1)
+        return int(r) > 32
+    except Exception:
+        return False
+
+
+def zl_dakai_huishouzhan():
+    """打开系统回收站 —— 演示"删了还能捞回来"时用，省得用户自己找
+
+    ShellExecuteW 返回 ≤ 32 就是没打开（0=内存不足 / 5=拒绝访问 …），
+    所以不能只看"有没有抛异常"。
+    """
+    try:
+        import ctypes
+        r = ctypes.windll.shell32.ShellExecuteW(
+            None, "open", "shell:RecycleBinFolder", None, None, 1)
+        return int(r) > 32
+    except Exception:
+        return False
+
+
+ZL_YANSHI = (
+    ("旧作业_第三次.docx",        b"PK\x03\x04" + b"x" * 900),
+    ("安装包_某播放器安装程序.exe", b"MZ" + b"\0" * 3200),
+    ("截图_2025_12_31.png",       b"\x89PNG\r\n\x1a\n" + b"\0" * 700),
+    ("笔记_临时.txt",             "这是演示用的假文件，随便删。\n".encode("utf-8") * 12),
+    ("压缩包_备份.zip",           b"PK\x03\x04" + b"\0" * 1800),
+)
+
+
+def zl_zhunbei_yanshi():
+    """造一个演示文件夹：几个一眼就知道该扔的假文件
+
+    为什么要造：老师演示"当面删、再恢复"时不能拿用户真实的文件冒险，
+    而且只有 zl_weixian 认得这个目录，删起来才有护栏可讲。
+    """
+    mu = zl_yanshi_lu()
+    try:
+        os.makedirs(mu, exist_ok=True)
+    except Exception as e:
+        return False, "建不了演示夹（%s）" % e
+    for ming, nei in ZL_YANSHI:
+        try:
+            with open(os.path.join(mu, ming), "wb") as f:
+                f.write(nei)
+        except Exception as e:
+            return False, "写不了 %s（%s）" % (ming, e)
+    return True, mu
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 新建文本 —— 自己写标题和正文，在演示夹里生成 .txt
+# ------------------------------------------------------------------------------
+# 和整理助手共用「演示夹」这个出口，但逻辑完全独立（全部 xt_ 前缀），
+# 一个 zl_* 函数都不改：整理助手的行为、白名单、只进回收站那条规矩全都不受影响。
+#
+# 为什么不并进 ZL_YANSHI：那是"演示用的假文件"，每次点「打开演示夹」会重造一遍，
+# 用户自己写的文本绝不能被覆盖 —— 所以两者是两条路，只是落在同一个文件夹。
+# ══════════════════════════════════════════════════════════════════════════════
+
+XT_ZUI_CHANG = 200 * 1024              # 单篇上限 200 KB（写小说也够，防手滑粘一整本）
+XT_HOUZHUI = ".txt"
+# Windows 文件名非法字符：\ / : * ? " < > |
+_XT_HUAI = '\\/:*?"<>|'
+# 这些名字在 Windows 里是设备名，不能当文件名
+_XT_SHEBEI = ("CON", "PRN", "AUX", "NUL",
+              "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+              "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9")
+
+
+def xt_qingli_biaoti(biaoti, mori="新建文本", zui_chang=60):
+    """把用户输入的标题变成能用的文件名（不含扩展名）
+
+    处理四类：非法字符、首尾的点与空格、Windows 设备名、过长。
+    空标题给个默认名 —— 不能让用户点了"生成"什么都没发生。
+    """
+    t = (biaoti or "").strip()
+    # 换行/制表符也当非法字符（粘一段多行文字进标题很常见）
+    for c in _XT_HUAI + "\r\n\t":
+        t = t.replace(c, " ")
+    # 连续空格压成一个，别留 "abc     def"
+    while "  " in t:
+        t = t.replace("  ", " ")
+    t = t.strip(" .")                       # Windows 不允许结尾是点或空格
+    if not t:
+        t = mori
+    # 设备名（不分大小写，也不带扩展名判断）
+    if t.upper() in _XT_SHEBEI:
+        t = "_" + t
+    # 太长就截，留出 " (2).txt" 的位置
+    if len(t) > zui_chang:
+        t = t[:zui_chang].rstrip(" .")
+    return t or mori
+
+
+def xt_lujing(biaoti):
+    """算一个演示夹里不重名的完整路径。
+
+    重名不覆盖 —— 加 (2)(3) 往后排。用户写第二篇同名的，不该把第一篇吃掉。
+    """
+    mu = zl_yanshi_lu()
+    ji = xt_qingli_biaoti(biaoti)
+    lu = os.path.join(mu, ji + XT_HOUZHUI)
+    ci = 2
+    while os.path.exists(lu) and ci < 1000:
+        lu = os.path.join(mu, "%s (%d)%s" % (ji, ci, XT_HOUZHUI))
+        ci += 1
+    return lu
+
+
+def xt_xie(biaoti, zhengwen, fu_jia_tou=True):
+    """在演示夹里写一个 txt，返回 (成功?, 说明, 完整路径)
+
+    几个刻意的决定：
+      · 不覆盖同名文件（见 xt_lujing）
+      · 正文为空也照写 —— 用户可能只想先建个空文件再说
+      · 编码 utf-8-sig：Windows 记事本打开中文不乱码（utf-8 无 BOM 在
+        老版本记事本里会显示成乱码，这是吃过亏的地方）
+      · 文件夹不存在就先建 —— 演示夹可能被用户自己删了
+    """
+    try:
+        mu = zl_yanshi_lu()
+        try:
+            os.makedirs(mu, exist_ok=True)
+        except Exception as e:
+            return False, "建不了演示夹（%s）" % e
+
+        lu = xt_lujing(biaoti)
+        nei = zhengwen or ""
+        if len(nei.encode("utf-8")) > XT_ZUI_CHANG:
+            return False, "正文太长了（超过 %d KB）" % (XT_ZUI_CHANG // 1024)
+
+        # 顶部加一行标题，记事本里一眼知道这是什么 —— 用户可以关掉
+        if fu_jia_tou and nei.strip():
+            nei = nei.lstrip("\r\n")
+
+        with open(lu, "w", encoding="utf-8-sig", newline="\r\n") as f:
+            f.write(nei)
+        return True, os.path.basename(lu), lu
+    except Exception as e:
+        return False, "写不了（%s）" % e
+
+
+def xt_shi_jianwen(wenti):
+    """这句话是不是在让我"新建一个文本 / 写个文件"
+
+    只认明确的建文件口气。「写一篇秋天的傍晚」是写作页那套，不能抢；
+    「新建文本」「存成 txt」「生成一个 md」这类才算。
+    """
+    try:
+        w = wenti or ""
+    except Exception:
+        return False
+    dong = ("新建", "创建", "建一个", "生成", "存成", "存为", "保存成", "写成文件")
+    lei = ("文本", "txt", "TXT", "Txt", "文件", "文档", "记事本", "md", "markdown")
+    if not (any(d in w for d in dong) and any(l in w for l in lei)):
+        return False
+    # 陈述句不算命令：「我新建了一个文本」是在聊天，不是让我动手。
+    # 判据：句子里有「我 … 了」这种完成时说法，又没有"帮我/给我"这种请求口气。
+    if re.search(r"我.{0,6}了", w) and not any(k in w for k in ("帮我", "给我", "麻烦", "请")):
+        return False
+    return True
+
+
+ZL_DONG_CI = ("整理", "清理", "收拾", "删掉", "删除", "扔掉", "清一清",
+              "移走", "移到回收站", "放进回收站")
+
+
+def zl_shi_zhengli(wenti):
+    """这句话是不是在让我整理文件
+
+    必须是「动作 + 范围」同时出现。光有"整理"不够 ——「整理一下思路」
+    也会命中；光有"文件"也不够 ——「这个文件打不开」不是要删。宁可少认，
+    认错了就是一次不该弹的面板（而删不删还得他自己勾）。
+    """
+    try:
+        w = wenti or ""
+    except Exception:
+        return False
+    if not any(c in w for c in ZL_DONG_CI):
+        return False
+    return any(c in w for c in ("桌面", "下载", "演示", "文件", "垃圾",
+                                "安装包", "回收站"))
+
+
+def zl_pan(wenti):
+    """从一句话里猜「哪个文件夹 + 哪类文件」，猜不出就不带"""
+    jieguo = {}
+    w = wenti or ""
+    if "桌面" in w:
+        jieguo["mulu"] = "桌面"
+    elif "下载" in w:
+        jieguo["mulu"] = "下载"
+    elif "演示" in w:
+        jieguo["mulu"] = "演示夹"
+    if "安装包" in w or "exe" in w.lower() or "安装程序" in w:
+        jieguo["leixing"] = "安装包"
+    elif "压缩包" in w or "zip" in w.lower() or "压缩文件" in w:
+        jieguo["leixing"] = "压缩包"
+    elif "图片" in w or "照片" in w or "截图" in w:
+        jieguo["leixing"] = "图片"
+    elif "文档" in w or "word" in w.lower() or "作业" in w:
+        jieguo["leixing"] = "文档"
+    return jieguo
+
+
+# ------------------------------------------------------------------------------
+# 「帮助 / 识图 / 计算 / 壁纸 / 字体大小 / 打赏 / 整理 / 清空聊天」全在顶栏，
+# 默认折起来，点「☰ 功能」横着展开一行，再点收起来。做成一行横排而不是下拉菜单，
+# 是因为 Tk 的 Menu 永远是系统方框脸，跟这套自绘界面不搭。
+GONGNENG_LIE = (
+    # 顺序按用户定：常用工具在前，动文件的（整理/清空聊天）靠后，帮助兜底放最后。
+    ("计算",     "jisuan"),
+    ("识图",     "shitu"),
+    ("写作",     "xiezuo"),
+    # ⑪ 整理助手：只把指定文件夹里的文件移到回收站，默认关着
+    ("整理",     "zhengli"),
+    ("打赏",     "dashang"),
+    # ⑤【第二轮】原「背景」改叫「壁纸」（内部 key 仍是 beijing，所有调用不用动）
+    ("壁纸",     "beijing"),
+    ("字体大小", "ziti"),
+    ("灵光",     "lingguang"),
+    ("记忆",     "jiyi"),
+    # ⑦ 忘记我吧：名字取四个字，和「字体大小」同宽 —— 按钮是 118 固定宽，
+    #    五个字（如「清空聊天记录」）量出来 78px，加上图标 18 + 间隙 10 +
+    #    左右内边距 28 就是 134px，会被胶囊裁掉，所以只能用四字。
+    #    「忘记我吧」比「清空聊天」更符合她的口气：她知道自己笨、记不住人，
+    #    点这一下等于是让她把这段关系整个忘掉。
+    ("忘记我吧", "qingkong"),
+    ("帮助",     "bangzhu"),
+)
+
+
+
