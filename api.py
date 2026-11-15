@@ -1216,3 +1216,190 @@ class Qiao:
     def yin_shu_zhuang_tai(self):
         """语音输入能不能用：模型在不在、麦克风有没有"""
         try:
+            from core import yuyin_shuru as ys
+        except Exception as e:
+            return {"ke": False, "cuo": "模块加载失败（%s）" % e}
+        lu = ys.mogen_zai()
+        if lu:
+            return {"ke": True, "mo": os.path.basename(lu), "yao_mo": False}
+        # 没模型，看看库在不在
+        try:
+            import sounddevice  # noqa: F401
+            import vosk          # noqa: F401
+            return {"ke": False, "yao_mo": True,
+                    "cuo": "还差语音模型（42 MB，要去下）"}
+        except Exception as e:
+            return {"ke": False, "yao_mo": True,
+                    "cuo": "还差语音库（%s）" % e}
+
+    def yin_shu_kai(self):
+        """按下说话：开始录音"""
+        try:
+            from core import yuyin_shuru as ys
+            return ys.kai_shi()
+        except Exception as e:
+            return {"ok": False, "cuo": "开不了录音（%s）" % e}
+
+    def yin_shu_ting(self):
+        """松开说话：停止录音并返回识别结果 {ok, wen, cuo}"""
+        try:
+            from core import yuyin_shuru as ys
+            return ys.ting_zhi()
+        except Exception as e:
+            return {"ok": False, "cuo": "收不了（%s）" % e}
+
+    def xia_yu_yin_mo(self):
+        """下载语音模型（42 MB）。带进度，后台跑。
+
+        用户点一下才开始下 —— 不偷偷占带宽。
+        """
+        import threading as _t
+        if getattr(self, "_zai_xia", False):
+            return {"ok": True, "zhengzai": True}
+        self._zai_xia = True
+        self._xia_bf = 0
+
+        def _pao():
+            import urllib.request
+            import zipfile
+            try:
+                from core import yuyin_shuru as ys
+                mu = ys.MOGEN_MU
+                os.makedirs(mu, exist_ok=True)
+                URL = ("https://alphacephei.com/vosk/models/"
+                       "vosk-model-small-cn-0.22.zip")
+                zip_lu = os.path.join(mu, "_m.zip")
+                for _ in range(20):
+                    have = os.path.getsize(zip_lu) if os.path.exists(zip_lu) else 0
+                    try:
+                        req = urllib.request.Request(
+                            URL, headers={"Range": "bytes=%d-" % have} if have else {})
+                        with urllib.request.urlopen(req, timeout=120) as r:
+                            zong = int(r.headers.get("Content-Length") or 0) + have
+                            mode = "ab" if have and r.status == 206 else "wb"
+                            with open(zip_lu, mode) as f:
+                                while True:
+                                    b = r.read(262144)
+                                    if not b:
+                                        break
+                                    f.write(b)
+                                    if zong:
+                                        self._xia_bf = min(
+                                            99, int(os.path.getsize(zip_lu) * 100 / zong))
+                        break
+                    except Exception:
+                        continue
+                with zipfile.ZipFile(zip_lu) as z:
+                    z.extractall(mu)
+                os.remove(zip_lu)
+                self._xia_bf = 100
+            except Exception as e:
+                self._xia_cuo = str(e)
+            finally:
+                self._zai_xia = False
+
+        self._xia_cuo = ""
+        _t.Thread(target=_pao, daemon=True).start()
+        return {"ok": True, "zhengzai": True}
+
+    def yu_yin_mo_jin_du(self):
+        return {"zai": bool(getattr(self, "_zai_xia", False)),
+                "baifen": int(getattr(self, "_xia_bf", 0)),
+                "cuo": getattr(self, "_xia_cuo", "")}
+
+    # ---------- 七·五 · 托盘主动说话 ----------
+    def zhu_dong_shuo(self, qiang_zhi=False):
+        """她主动说一句话（托盘「让她说句话」用）
+
+        走旧版 luoji.zhu_dong_na()：按当前时段/上次说话时间/好感，
+        从 ZHU_HUA 里挑一句（久别 / 深夜 / 想 / 无聊 / 关心）。
+        返回 {wen, biao, changjing}
+
+        【qiang_zhi 是什么】zhu_dong_na 有节奏限制（一天 6 次、间隔 40 分钟）。
+        用户手动点「让她说句话」时不该被这个限制挡住 —— 那是自动推送的规矩。
+        所以 qiang_zhi=True 时直接自己挑一句，不走限制。
+        """
+        try:
+            if qiang_zhi:
+                # 手动触发：按当前时段挑场景，但要轮着来 ——
+                # 每次都是「今天累不累」用户会以为坏了
+                import random
+                xs = __import__("datetime").datetime.now().hour
+                if xs >= 23 or xs < 4:
+                    场 = "深夜"
+                elif not self._hui:
+                    场 = "久别"          # 从没聊过 → 就当久别重逢
+                else:
+                    场 = random.choice(("想", "无聊", "关心"))
+                池 = list(luoji.ZHU_HUA[场])
+                上 = getattr(self, "_shang_ju", "")
+                if len(池) > 1 and 上 in 池:
+                    池.remove(上)
+                句 = random.choice(池)
+                self._shang_ju = 句
+                jie = (场, 句)
+            else:
+                jie = luoji.zhu_dong_na()
+            if not jie:
+                return {"wen": "", "biao": ""}
+            # zhu_dong_na 返回 (场景, 句子) 或 None
+            chang, wen = (jie if isinstance(jie, tuple) else ("", jie))
+            wen = str(wen or "").strip()
+            if not wen:
+                return {"wen": "", "biao": ""}
+            with self._suo:
+                biao = self._biao_ti()
+                self._ji("", wen, biao)     # 记进对话历史（用户那句空，渲染时跳过）
+                try:
+                    # 没有"单独更新情绪"的方法（Qingxu 只有 gengxin(问,答)），
+                    # 主动说话时把空问题传进去 —— 它只看回答就会更新脸色
+                    self._qingxu.gengxin("", wen)
+                except Exception:
+                    pass
+            return {"wen": wen, "biao": biao, "changjing": chang}
+        except Exception as e:
+            print("[api] 主动说话失败 %s" % e)
+            return {"wen": "", "biao": ""}
+
+    def ji_ming_zi(self, ming):
+        """首次引导里用户填的名字 —— 直接写进记忆档案
+
+        【为什么要单独一个接口】ti_zhongyao 认的是"我叫X"这种句式，
+        引导卡里用户只填一个词（"小裴"），没有句式可抽。
+        这里直接写，跳过规则。
+        """
+        ming = str(ming or "").strip()
+        if not ming or len(ming) > 20:
+            return {"ok": False, "cuo": "名字不像名字"}
+        try:
+            ji = luoji.du_zhongyao()
+            ji["名字"] = ming
+            ji["更新"] = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+            luoji.xie_zhongyao(ji)
+            return {"ok": True, "ming": ming}
+        except Exception as e:
+            return {"ok": False, "cuo": str(e)}
+
+    def ji_zhu_dong(self, wen, biao=""):
+        """把主动说的一句话记进对话（窗口藏着、只发了通知时用）
+
+        为什么不复用 zhu_dong_shuo：那个函数会重新挑一句。
+        这里是把**已经挑好的那句**补记进历史，不然用户点开窗口看不到。
+        """
+        try:
+            with self._suo:
+                self._ji("", str(wen or ""), biao or self._biao_ti())
+                try:
+                    self._qingxu.gengxin("", str(wen or ""))
+                except Exception:
+                    pass
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "cuo": str(e)}
+
+    def chuang_ke_jian(self):
+        """窗口现在可见吗 —— 主动消息用它决定是推气泡还是发通知"""
+        # pywebview 6.x 的 Window 没有 is_visible()，只有 show/hide。
+        # 所以自己记账：隐藏时打个标记，显示时清掉。
+        try:
+            if self._chuang is None:

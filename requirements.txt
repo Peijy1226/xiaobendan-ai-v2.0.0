@@ -1,0 +1,40 @@
+# ============================================================================
+#  小笨蛋 · 运行依赖
+#  装：  pip install -r requirements.txt
+# ============================================================================
+
+# ---- 界面 ----
+pywebview>=6.2.1
+
+# ---- 图像 / 识图 ----
+pillow>=10.0
+numpy>=1.24
+opencv-python>=4.8
+onnxruntime>=1.16
+rapidocr-onnxruntime>=1.3
+
+# ---- 语音输出（她说话）----
+edge-tts>=6.1
+aiohttp>=3.9
+certifi
+
+# ---- 语音输入（你说话）----
+sounddevice>=0.5
+vosk>=0.3.45
+
+# ---- 托盘 ----
+pystray>=0.19
+six
+
+# ---- vosk 的隐性依赖（它 import 了但只用一小部分）----
+srt
+requests
+tqdm
+
+# ---- 整理助手 ----
+pyclipper
+shapely
+pyyaml
+
+# ---- 打包成 exe 时另装 ----
+# pyinstaller>=6.0
