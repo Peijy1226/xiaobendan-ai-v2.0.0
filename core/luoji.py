@@ -7169,3 +7169,626 @@ _DIMING_CUN = {}          # 城市 → (纬度, 经度)，地名不会变，永�
 TQ_WAI_ALIAS = {
     "东京": "Tokyo", "大阪": "Osaka", "京都": "Kyoto", "札幌": "Sapporo",
     "首尔": "Seoul", "釜山": "Busan", "新加坡": "Singapore", "曼谷": "Bangkok",
+    "吉隆坡": "Kuala Lumpur", "雅加达": "Jakarta", "马尼拉": "Manila",
+    "河内": "Hanoi", "迪拜": "Dubai", "多哈": "Doha", "孟买": "Mumbai",
+    "新德里": "New Delhi", "纽约": "New York", "洛杉矶": "Los Angeles",
+    "旧金山": "San Francisco", "西雅图": "Seattle", "芝加哥": "Chicago",
+    "波士顿": "Boston", "华盛顿": "Washington", "拉斯维加斯": "Las Vegas",
+    "多伦多": "Toronto", "温哥华": "Vancouver", "蒙特利尔": "Montreal",
+    "墨西哥城": "Mexico City", "伦敦": "London", "曼彻斯特": "Manchester",
+    "爱丁堡": "Edinburgh", "巴黎": "Paris", "柏林": "Berlin",
+    "慕尼黑": "Munich", "法兰克福": "Frankfurt", "罗马": "Rome",
+    "米兰": "Milan", "马德里": "Madrid", "巴塞罗那": "Barcelona",
+    "阿姆斯特丹": "Amsterdam", "布鲁塞尔": "Brussels", "苏黎世": "Zurich",
+    "维也纳": "Vienna", "斯德哥尔摩": "Stockholm", "哥本哈根": "Copenhagen",
+    "赫尔辛基": "Helsinki", "莫斯科": "Moscow", "圣彼得堡": "Saint Petersburg",
+    "伊斯坦布尔": "Istanbul", "悉尼": "Sydney", "墨尔本": "Melbourne",
+    "布里斯班": "Brisbane", "珀斯": "Perth", "奥克兰": "Auckland",
+    "惠灵顿": "Wellington", "开罗": "Cairo", "开普敦": "Cape Town",
+    "约翰内斯堡": "Johannesburg", "圣保罗": "Sao Paulo",
+    "里约热内卢": "Rio de Janeiro", "布宜诺斯艾利斯": "Buenos Aires",
+    "利马": "Lima", "香港": "Hong Kong", "澳门": "Macau",
+    "台北": "Taipei", "高雄": "Kaohsiung", "台中": "Taichung",
+}
+
+
+def _tq_di(chengshi):
+    """城市 → (纬度, 经度)。返回 (坐标, 错误)
+
+    三级兜底 —— "中文地名"这件事没有哪一家是全能：
+      ① open-meteo 地理编码：快，但主要认拉丁字母。北京、上海、南京能查到，
+         "扬州""宿迁"查不到；更麻烦的是中文名会撞到同名小地方
+         （"东京"会命中江苏一个叫东京的村子，坐标在扬州旁边）。
+         所以中文查询额外要求"人口 ≥ 10 万"，不然宁可当没查到。
+      ② wttr.in：认中文地名，返回最近气象站的坐标，拿来做地名解析够用。
+      ③ 都不行就老实说查不到 —— 绝不拿默认城市顶替，
+         否则就成了"问扬州答北京"，比不答还糟。
+    """
+    cun = _DIMING_CUN.get(chengshi)
+    if cun:
+        return cun, ""
+    cuo = ""
+
+    def cha_om(ming, yao_pop):
+        """查一次 open-meteo 地理编码。只要坐标，查不到返回 None"""
+        try:
+            u = ("https://geocoding-api.open-meteo.com/v1/search?name=%s"
+                 "&count=3&language=zh&format=json" % urllib.parse.quote(ming))
+            d, c = _http_json(u, None, {"Accept": "application/json"}, 6)
+            if d is None:
+                return None, c
+            for r in (d.get("results") or []):
+                ren = str(r.get("name") or "")
+                pop = r.get("population") or 0
+                # 中文名只认够大的城，别被同名村子骗了
+                if yao_pop and not (pop >= 100000
+                                    and (ren == ming or ren.startswith(ming))):
+                    continue
+                try:
+                    return (float(r["latitude"]), float(r["longitude"])), ""
+                except Exception:
+                    continue
+            return None, ""
+        except Exception as e:
+            return None, str(e)
+
+    # ① open-meteo（先按原样查；国外城市换英文名再查一次，快很多）
+    zuo, c = cha_om(chengshi, bool(re.search(r"[\u4e00-\u9fa5]", chengshi or "")))
+    if zuo is None and chengshi in TQ_WAI_ALIAS:
+        zuo, c2 = cha_om(TQ_WAI_ALIAS[chengshi], False)
+        c = c or c2
+    if zuo is not None:
+        _DIMING_CUN[chengshi] = zuo
+        return zuo, ""
+    cuo = c or cuo
+
+    # ② wttr.in（认中文）
+    try:
+        u = "https://wttr.in/%s?format=j1" % urllib.parse.quote(chengshi)
+        d, c = _http_json(u, None, {"Accept": "application/json",
+                                    "User-Agent": "XiaoBenDan/1.0"}, 12)
+        if isinstance(d, dict):
+            na = (d.get("nearest_area") or [{}])[0]
+
+            def qu_ming(jian):
+                try:
+                    return str((na.get(jian) or [{}])[0].get("value") or "")
+                except Exception:
+                    return ""
+
+            guo = qu_ming("country")
+            wei, jing = na.get("latitude"), na.get("longitude")
+            # wttr 认不出的名字会给出它自己那台服务器所在的城市（实测"阿斯嘉特"
+            # 被解析成伦敦 Strand）—— 与其报一个错城，不如老实说查不到。
+            # 所以中文名只认"落在中国的"结果；国外城市走上面的英文别名。
+            if wei and jing and (re.search(r"[\u4e00-\u9fa5]", chengshi or "") is None
+                                 or "中国" in guo or "China" in guo):
+                zuo = (float(wei), float(jing))
+                _DIMING_CUN[chengshi] = zuo
+                return zuo, ""
+        elif c:
+            cuo = cuo or c
+    except Exception as e:
+        cuo = cuo or str(e)
+    return None, cuo or "查不到这个地名"
+
+
+def _tq_qu(chengshi, ri_shu=7):
+    """查坐标 + 当前 + 未来几天。返回 (坐标, 天气json, 错误)"""
+    ji = _TQ_CUN.get(chengshi)
+    if ji and time.time() - ji[0] < TQ_CUN_MIAO:
+        return ji[1], ji[2], ""
+
+    # ① 城市 → 经纬度
+    zuo, cuo = _tq_di(chengshi)
+    if zuo is None:
+        return None, None, "没查到「%s」这个地方（%s）" % (chengshi, cuo)
+    wei, jing = zuo
+
+    # ② 经纬度 → 天气（当前 + 逐日）。forecast_days 给 7，
+    #    "今天/明天/后天/下周会下雨吗"都在这一份数据里，不用再请求第二次。
+    tq_url = ("https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+              "&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
+              "weather_code,wind_speed_10m"
+              "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
+              "precipitation_probability_max,precipitation_sum,wind_speed_10m_max"
+              "&timezone=auto&forecast_days=%d"
+              % (wei, jing, max(1, min(7, int(ri_shu or 7)))))
+    tq, cuo = _http_json(tq_url, None, {"Accept": "application/json"}, 15)
+    if tq is None:
+        return None, None, cuo
+    if not (tq.get("current") or tq.get("daily")):
+        return None, None, "天气接口没给数据"
+    zuo = (wei, jing)
+    _TQ_CUN[chengshi] = (time.time(), zuo, tq)
+    return zuo, tq, ""
+
+
+_XINGQI = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+
+def _tq_ri(ri):
+    """'2026-11-08' → ('11/08', '周日')"""
+    try:
+        t = time.strptime(str(ri), "%Y-%m-%d")
+        return time.strftime("%m/%d", t), _XINGQI[t.tm_wday % 7]
+    except Exception:
+        return str(ri), ""
+
+
+def _tq_mei(tq):
+    """把接口里"一天一列"的 daily 竖过来，一天一条 —— 后面拼句子全靠它"""
+    ri = (tq.get("daily") or {})
+    rq = ri.get("time") or []
+    ma = ri.get("weather_code") or []
+    gao = ri.get("temperature_2m_max") or []
+    di = ri.get("temperature_2m_min") or []
+    yu = ri.get("precipitation_probability_max") or []
+    liang = ri.get("precipitation_sum") or []
+    feng = ri.get("wind_speed_10m_max") or []
+
+    def qu(lie, i):
+        try:
+            v = lie[i]
+            return None if v is None else float(v)
+        except Exception:
+            return None
+
+    mei = []
+    for i, r in enumerate(rq[:7]):
+        zhuang = ""
+        try:
+            zhuang = TIANQI_MA.get(int(ma[i]), "")
+        except Exception:
+            pass
+        d_, x_ = _tq_ri(r)
+        mei.append({"ri": d_, "xing": x_, "zhuang": zhuang,
+                    "gao": qu(gao, i), "di": qu(di, i), "yu": qu(yu, i),
+                    "liang": qu(liang, i), "feng": qu(feng, i)})
+    return mei
+
+
+def _tq_ju(tian):
+    """一天说成一句：小雨，9~15℃，降水概率 80%"""
+    ju = []
+    if tian.get("zhuang"):
+        ju.append(tian["zhuang"])
+    if tian.get("di") is not None and tian.get("gao") is not None:
+        ju.append("%d~%d℃" % (round(tian["di"]), round(tian["gao"])))
+    if tian.get("yu") is not None:
+        ju.append("降水概率 %d%%" % round(tian["yu"]))
+    return "，".join(ju)
+
+
+def _tq_tishi(tian):
+    """要不要带伞 —— 只有真有雨才啰嗦一句，别的日子不念"""
+    z = tian.get("zhuang") or ""
+    yu = tian.get("yu")
+    if "雪" in z:
+        return "下雪，路上小心"
+    if yu is not None and yu >= 60:
+        return "记得带伞"
+    if yu is not None and yu >= 40:
+        return "可能下雨，带把伞保险"
+    return ""
+
+
+def _tq_shuo(chengshi, tq, fw, wenti=""):
+    """把接口数据说成人话。数字只用接口给的，一个都不猜。"""
+    dq = (tq.get("current") or {})
+    mei = _tq_mei(tq)
+    moshi, zhi = fw
+    hang = []
+    wen_yu = any(k in (wenti or "") for k in ("下雨", "下雪", "降雨", "雨伞", "带伞"))
+
+    def yi_tian(i, qianzhui=""):
+        if i < 0 or i >= len(mei):
+            return ""
+        d = mei[i]
+        s = "%s（%s %s）%s" % (qianzhui, d["ri"], d["xing"], _tq_ju(d))
+        ts = _tq_tishi(d)
+        return s + ("，" + ts if ts else "")
+
+    # ① "现在"这一行：问未来几天时就不占地方了
+    if dq and moshi in ("now", "day"):
+        z = ""
+        try:
+            z = TIANQI_MA.get(int(dq.get("weather_code")), "")
+        except Exception:
+            pass
+        ju = ["【%s 天气】现在%s" % (chengshi, (" " + z) if z else "")]
+        if dq.get("temperature_2m") is not None:
+            ju.append("%d℃" % round(float(dq["temperature_2m"])))
+        if dq.get("apparent_temperature") is not None:
+            ju.append("体感 %d℃" % round(float(dq["apparent_temperature"])))
+        if dq.get("relative_humidity_2m") is not None:
+            ju.append("湿度 %d%%" % round(float(dq["relative_humidity_2m"])))
+        if dq.get("wind_speed_10m") is not None:
+            ju.append("风 %d km/h" % round(float(dq["wind_speed_10m"])))
+        hang.append("，".join(ju))
+
+    if not mei:
+        return "\n".join(hang) or "天气接口没给这几天的数据，过一会儿再问我一次。"
+
+    if moshi == "now":
+        hang.append(yi_tian(0, "今天"))
+        # 顺手把明天、后天带一句 —— 用户明确要求"加入未来几天天气"，
+        # 但只给两行（不是七行），不然每次问今天都刷屏
+        ji_xu = []
+        for i, biao in ((1, "明天"), (2, "后天")):
+            if i < len(mei):
+                ji_xu.append("%s（%s）%s" % (biao, mei[i]["ri"], _tq_ju(mei[i])))
+        if ji_xu:
+            hang.append("接着：" + "；".join(ji_xu))
+    elif moshi == "day":
+        hang.append(yi_tian(min(zhi, len(mei) - 1), "明天" if zhi == 1 else "后天"))
+        hang.append("（今天参考：%s）" % _tq_ju(mei[0]))
+    elif moshi == "weekend":
+        hang.append("【%s 周末】" % chengshi)
+        for i, d in enumerate(mei):
+            if d["xing"] in ("周六", "周日"):
+                ts = _tq_tishi(d)
+                hang.append("%s（%s）%s%s" % (d["xing"], d["ri"], _tq_ju(d),
+                                              ("，" + ts) if ts else ""))
+    else:
+        # 未来几天。问"会下雨吗"就先给一句人话结论，再列细的
+        yu_tian = [d for d in mei
+                   if (d.get("yu") or 0) >= 40 or (d.get("liang") or 0) >= 0.5]
+        if wen_yu:
+            if yu_tian:
+                hang.append("【%s】未来 7 天有 %d 天可能下雨：%s"
+                            % (chengshi, len(yu_tian),
+                               "；".join("%s %s" % (d["ri"], _tq_ju(d))
+                                        for d in yu_tian[:4])))
+            else:
+                hang.append("【%s】未来 7 天基本没有雨。" % chengshi)
+        hang.append("【%s 未来 7 天】" % chengshi)
+        for i, d in enumerate(mei):
+            ts = _tq_tishi(d)
+            hang.append("%s %s %s%s" % (d["ri"], d["xing"], _tq_ju(d),
+                                        ("，" + ts) if ts else ""))
+    return "\n".join([x for x in hang if x])
+
+
+def tianqi_chaxun(wenti, moren="北京"):
+    """查天气的总入口：认城市 → 认日期 → 问接口 → 拼人话
+
+    返回 (一段话, 错误说明, 是否拿到了实时数据)。
+    离线模式、灵光模式都走这一个 —— 区别只在"拼完之后谁来说"：
+      · 离线：这段话直接进气泡；
+      · 灵光：这段话当"事实"塞给模型，让它用自己的口气说，数字不许改。
+    """
+    chengshi, _mingque = _zhao_chengshi(wenti, moren)
+    fw = _tq_fanwei(wenti)
+    _zuo, tq, cuo = _tq_qu(chengshi, 7)
+    if tq is None:
+        return "", (cuo or "天气接口没回话"), False
+    # 记住这次问的城：下一句"那明天呢""下周会下雨吗"直接接上
+    _TQ_SHANG["chengshi"] = chengshi
+    _TQ_SHANG["t"] = time.time()
+    return _tq_shuo(chengshi, tq, fw, wenti), "", True
+
+
+def tianqi_zaiwang(wenti, moren="北京"):
+    """联网查天气，返回 (一段人话, 错误说明)。阻塞调用，放在子线程里跑。"""
+    wen, cuo, ok = tianqi_chaxun(wenti, moren)
+    if not ok:
+        return "", cuo
+    return wen, ""
+
+
+# 灵光模式问天气时，追加在人设后面的硬规则。
+# 人设里写着"她不知道外面的天气，被问就说看不到"—— 那条对天气必须让位，
+# 否则模型会回"我这儿连窗户都没有"，用户等于白问。
+# 用户的意思很明确：功能排在人设前面，人设只负责"不要 AI 味、多互动"。
+TQ_WEATHER_RULE = """
+
+【这一条比人设优先 · 天气】
+用户问的是天气，下面这条消息里带着刚查到的**真实天气数据**（接口返回的）。
+- 直接把它说给用户：城市、日期、天气、温度、降水概率都照抄，数字一个字都不许改。
+- 不许说"看不到外面""我不知道""我这儿连窗户都没有"这类话 —— 数据已经给你了。
+- 可以用你自己的口气组织，但别把数字换成模糊说法（"挺冷的""大概十几度"都不行）。
+- 问哪天就答哪天；问"会下雨吗"就先回答会不会，再说概率。
+"""
+
+
+# ── 工具优先于「人设」 ────────────────────────────────────────────
+# 用户第四十轮提的问题：人设里写着「她不是学生、没玩过王者」，
+# 于是问「王者射手玩什么」她就回「我不玩」——可程序明明有这个工具。
+# 结论：**工具答案优先于人设**。人设管的是"她怎么说话"，不是"她能知道什么"；
+# 一个 18 岁的女孩子，朋友问她王者选什么英雄，她照样能聊，
+# 只是她的口气是"我朋友说…"而不是"作为 AI 我可以查询"。
+GONGJU_YUE = """
+
+【这一条压过上面所有「她不知道 / 她不玩 / 她不是学生」的设定 · 工具】
+程序替她接了几个外挂的小工具。**只要下面附了工具给出的内容，就必须照它回答**，
+不许再用"我不知道""我不玩这个""我这儿看不到"把人挡回去 ——
+那些是她在没人帮忙时的说法，现在有答案了，再挡就是敷衍。
+
+说话时只有一条要注意：**别暴露"工具""接口""查询结果"这些词**，
+也别把资料原文照搬得像条目清单。用她自己的口气说，就像她刚好知道这事。
+
+- 报时：直接说几点、几号、星期几。
+- 天气：数字照抄，一个字都不许改（下面会另给一条硬规则）。
+- 笑话：把段子讲出来就行，可以加一句自己的吐槽，别解释"这是个笑话"。
+- 美食：把菜名和那一句介绍说出来，像自己馋了在推荐。
+- 王者：该怎么答就怎么答。她可以说"我自己不玩，不过我朋友天天念叨…"，
+  但**答案要给全**，不能只说"我不玩"就完了。
+- 算数 / 换算：把结果说出来，别写算式过程。
+"""
+
+
+def _tq_shuo_dui(hui, shuju):
+    """模型是不是照着数据说的 —— 城市在、数字也至少抄对一个
+
+    模型偶尔会自由发挥（换座城、把 6~16℃ 说成 18℃、或者绕开数字只说"挺冷"）。
+    这种就退回接口原文：宁可少点人味，不能给错数。
+    """
+    hui = hui or ""
+    m = re.search(r"【([^】\s]{2,12})", shuju or "")
+    if m and m.group(1) not in hui:
+        return False
+    shu = set(re.findall(r"\d{1,3}", shuju or ""))
+    return bool(shu & set(re.findall(r"\d{1,3}", hui)))
+
+
+
+# ======================================================================
+# ⑨ 写作文：体裁、提示词、离线模板
+# ----------------------------------------------------------------------
+# 两条路：
+#   灵光开着 → 交给 DeepSeek 写，提示词里卡死 100~200 字；
+#   灵光关着 → 用下面的模板填空，能交差但不会出彩。
+# 无论哪条路，出来都要过一遍 xiezuo_zhengli()：清理符号、数字数、超了就按句截。
+# ======================================================================
+
+XIEZUO_TI = ("记叙", "议论", "写景", "书信", "随便")
+
+# 字数档位：(数值, 显示名)。0 = 不限（联网了不怕上下文，用户要多少给多少）
+XIEZUO_ZISHU = ((100, "100 字"), (200, "200 字"), (300, "300 字"),
+                (500, "500 字"), (0, "不限"))
+
+# 作文专用 system —— 和聊天的"灰猫人设"完全无关，所以单独一份
+XIEZUO_XITONG = """你是一位很会写中文作文的作者。要求：
+
+- 只输出作文正文。不要标题，不要"好的""以下是"，不要任何解释或点评。
+- 字数控制在 100~200 字之间，宁短勿长，但不要少于 100 字。
+- 简体中文，句子通顺，有具体的细节，不要堆砌形容词和空话。
+- 记叙文要有场景和动作；议论文要有观点和理由；写景要有光、色、声音；
+  书信要保留称呼和落款。
+- 不要分段超过两段。"""
+
+
+def xiezuo_xitong(zishu=200):
+    """按"字数档位"拼写作提示词（第三十二轮新增）
+
+    为什么不直接把 XIEZUO_XITONG 改掉：旧的小窗写作还在用那份默认的
+    "100~200 字"，两边共用一份文本，改一处就全变了。这里只在需要时替换
+    那一条要求，其余要求原样不动。
+    """
+    jiu = "- 字数控制在 100~200 字之间，宁短勿长，但不要少于 100 字。"
+    if not zishu:
+        xin = ("- 字数不限，通常写到 600 字左右即可；用户没特别说明就别超过 800 字。\n"
+               "- 该分几段就分几段，最多 5 段。")
+    else:
+        xin = ("- 字数控制在 %d 字左右（上下浮动 10%% 以内）。\n"
+               "- 按内容自然分段，最多 4 段。" % zishu)
+    if jiu in XIEZUO_XITONG:
+        return XIEZUO_XITONG.replace(jiu, xin)
+    return XIEZUO_XITONG + "\n" + xin
+
+# 离线模板：{ti} 换成题目，{date} 换成今天。
+# 每段都写到 160~190 字，套上题目就能交差。
+XIEZUO_MOBAN = {
+    "记叙": (
+        """{ti}，我记得很清楚。那天天还没亮透，屋里只开着一盏小灯，桌上摊着没写完的作业。妈妈把热好的牛奶放在我手边，杯壁上蒙着一层白雾，她什么也没说，只是把我的衣领往上拢了拢。我抬头看她，她的眼睛有点红，大概是没睡好。那一刻我忽然明白，有些爱不说出口，却每天都热气腾腾地摆在桌上。后来我常常想起那个早晨，想起那杯渐渐凉掉的牛奶。""",
+        """{ti}，那天的风我到今天还记得。放学路上我摔了一跤，膝盖破了，书包里的本子撒了一地。我蹲在地上一本一本捡，越捡越委屈。后来同桌跑了回来，什么也没问，蹲下来跟我一起捡，捡完把纸巾塞进我手里。两个人谁也没说话，就那么一前一后往回走。那时候我才明白，有些时候不用讲道理的陪伴，比什么话都顶用。""",
+        """说到{ti}，我想到的不是什么大事，是一个下午。教室很闷，风扇吱呀吱呀地转，我趴在桌上装睡。前桌忽然回头，把一颗糖放在我手心里，又转回去了，什么也没说。那颗糖化得很快，甜味在嘴里留了很久。后来我们也没变多熟，可我一直记着那个下午。人有时候被一句话救不了，会被一颗糖救一下。""",
+    ),
+    "议论": (
+        """关于{ti}，我一直觉得，真正的难处不在道理，而在坚持。道理谁都懂，说得头头是道的人很多，可真到要做的时候，替自己找借口的人更多。我见过同学把计划表贴在桌前，也见过那张表三天后就成了草稿纸。差别不在聪明与否，而在于有没有把第一件小事做完。说到底，拼的不是一时的热情，而是每天多走半步的习惯。""",
+        """{ti}这个题目，我想到的不是大道理，是我妈说过的一句话：先把碗洗了。她说人一懒就爱多想，越想越不想动。我试过，真是这样。计划写得再漂亮，只要第一件小事没开始，后面全是空的。所以现在我少谈{ti}，先做三分钟，做得下去再往下说。有些事不是想明白才去做，是做着做着才明白。""",
+        """说起{ti}，很多人先想到"要不要"，我却觉得关键在"做多久"。三天的热情谁都有，难的是第四天还愿意坐下来。我见过练字练到第二个本子的人，也见过买了吉他一个月就挂在墙上的人。他们的区别不在天赋，在于有没有给自己找一个能坚持的理由。{ti}这件事，比的从来不是起点，是留到最后的人。""",
+    ),
+    "写景": (
+        """{ti}来的时候，天地像被谁轻轻擦过一遍。远处的树影先淡下去，接着是屋顶和田埂，最后连声音都安静了。风从窗缝里钻进来，带着一点凉，把书页吹得哗哗响。我坐在窗边，看着光一点点变软，颜色从灰白变成浅金，再沉成暗紫。那一刻什么也不用想，心里像被人安抚过一样，安静得很。""",
+        """{ti}，天是那种洗过的蓝，云白得发亮。路边的草叶上还挂着水珠，走过去裤脚就湿了一片。一只麻雀落在电线上歪头看我，我停住，它也停住，然后扑棱一下飞走了。空气里有湿泥和青草混着的味道，吸一口，凉到肺里。远处有人喊孩子回家吃饭，声音一层层飘过来，被风揉散了。""",
+        """{ti}的时候，整条街都慢下来了。早点铺的蒸汽从窗口涌出来，白白的一团，被风吹得歪。卖菜的阿姨把青菜一棵棵码整齐，叶子上还带着水。公交车进站，刹车的气声很长，下来几个人，都缩着脖子快步走。我拎着袋子站在路口，看红灯数到零，忽然觉得这样的早晨也挺好的。""",
+    ),
+    "书信": (
+        """亲爱的{cheng}：
+
+　　见字如面。这几天总有些话搁在心里，当面说不出口，就写下来吧。谢谢您一直没催我，也谢谢您在我做得不好的时候，还愿意听我解释。我知道自己慢，但一直在往前走，没有停。等我回去，想陪您好好吃一顿饭，慢慢说话，不赶时间。
+
+　　祝您身体健康。
+
+　　　　　　　　　　　　　　　　{date}""",
+        """亲爱的{cheng}：
+
+　　见字如面。最近总想起从前的事。那时候我什么都不懂，做错了也不肯认，您没有骂我，只是把碗往我面前推了推，说先吃饭。现在自己遇上难处，才明白那句话有多重。写这封信不为别的，就是想跟您说一声：我知道了。
+
+　　天凉了，您记得添件衣服。
+
+　　　　　　　　　　　　　　　　{date}""",
+    ),
+}
+
+# 「随便」时按题目里的字眼挑一个体裁
+XIEZUO_TIAO = (
+    (("雨", "雪", "风", "秋", "春", "夏", "冬", "夜", "晨", "海", "山", "花"), "写景"),
+    (("应该", "看法", "论", "是否", "该不该", "意义", "价值"), "议论"),
+    (("妈妈", "父亲", "老师", "朋友", "同学", "奶奶", "爷爷", "他", "她"), "记叙"),
+)
+
+# 超长时按句截断，数字数只管正文字符（不含空白）
+
+
+def xiezuo_zhengli(wen, zui_duo=200):
+    """清掉模型爱带的符号，数字数；超过 zui_duo 就按句号截
+
+    为什么按句截而不是硬切字符：硬切会在半句话上断掉，一看就是程序干的。
+    """
+    t = (wen or "").strip()
+    t = re.sub(r"^[#>*\-\s]+", "", t, flags=re.M)      # 去 markdown 前缀
+    t = t.replace("**", "").replace("__", "")
+    t = t.strip(" \n\t")
+    if t.startswith(("好的", "以下是", "当然")):
+        t = t.split("\n", 1)[-1].strip()
+
+    def zi_shu(x):
+        return len(re.sub(r"\s", "", x))
+
+    if zi_shu(t) <= zui_duo:
+        return t, zi_shu(t)
+    out = ""
+    for ju in re.split(r"(?<=[。！？!?；;\n])", t):
+        if not ju:
+            continue
+        if zi_shu(out + ju) <= zui_duo:
+            out += ju
+            continue
+        # 这句塞不下：剩下的地方还够写一段的话，就硬切一段补满。
+        # 只 break 不补的话，遇到"第一句很短 + 第二句两百字"就会只剩七个字，
+        # 那种结果还不如直接砍一刀。
+        kong = zui_duo - zi_shu(out)
+        if kong >= 20:
+            out += re.sub(r"\s", "", ju)[:kong]
+        break
+    out = out.strip()
+    if not out:                      # 一句话就超了：只能硬切
+        out = re.sub(r"\s", "", t)[:zui_duo]
+    return out, zi_shu(out)
+
+
+_XZ_SHANG = {}          # 每个体裁上次用的是第几版
+
+
+def _xuan_ban_ben(ticai, ban_ben):
+    """挑一版模板：随机，但绝不和上一次重复
+
+    为什么不用 random.choice：两版的时候，连续三次撞同一个的概率有 1/4，
+    用户连点两下看到一模一样的字，第一反应就是"这是个写死的"。
+    """
+    if not isinstance(ban_ben, (list, tuple)):
+        return ban_ben
+    if len(ban_ben) <= 1:
+        return ban_ben[0]
+    jiu = _XZ_SHANG.get(ticai)
+    i = random.randrange(len(ban_ben))
+    if jiu is not None and i == jiu:
+        i = (i + 1) % len(ban_ben)
+    _XZ_SHANG[ticai] = i
+    return ban_ben[i]
+
+
+def xiezuo_lixian(timu, ticai):
+    """离线写作文：挑模板填空。没有模型，只能做到"能交差"。"""
+    ti = (timu or "").strip() or "秋天"
+    if ticai == "随便" or ticai not in XIEZUO_MOBAN:
+        ticai = "记叙"
+        for ci_biao, ming in XIEZUO_TIAO:
+            if any(c in ti for c in ci_biao):
+                ticai = ming
+                break
+    ban_ben = XIEZUO_MOBAN.get(ticai) or XIEZUO_MOBAN["记叙"]
+    # 每个体裁有两三版，轮着挑 —— 同一个题目连点几次不会是同一段字，
+    # 而且每版都是写完整的通顺段落，不是东拼西凑的，流畅度不受影响。
+    moban = _xuan_ban_ben(ticai, ban_ben)
+    cheng = "你"
+    for ci, ming2 in (("老师", "老师"), ("妈妈", "妈妈"), ("母亲", "妈妈"),
+                      ("爸爸", "爸爸"), ("父亲", "爸爸"), ("奶奶", "奶奶"),
+                      ("爷爷", "爷爷"), ("朋友", "朋友"), ("同学", "同学")):
+        if ci in ti:
+            cheng = ming2
+            break
+    wen = moban.replace("{ti}", ti).replace("{cheng}", cheng).replace(
+        "{date}", time.strftime("%Y年%m月%d日"))
+    return xiezuo_zhengli(wen, 200)
+
+
+def zai_jian():
+    """--自检：不开窗口，把依赖/素材/模型能不能用写成一份 txt
+
+    打包给别人的时候，最怕"能开窗口但识图用不了"——那是因为 onnxruntime 或
+    rapidocr 的模型没打进去。这个模式就是给这种情况准备的：
+        小笨蛋.exe --自检
+    会在程序目录生成"自检结果.txt"，里面逐项写明哪个库装了、哪个模型在不在、
+    OCR/人脸/物体各跑出多少结果。
+    """
+    hang = []
+
+    def ji(s):
+        hang.append(s)
+
+    ji("小笨蛋 自检")
+    ji("Python: %s" % sys.version.split()[0])
+    ji("程序目录: %s" % DIR)
+    ji("是否 exe 运行: %s" % bool(getattr(sys, "frozen", False)))
+    ji("")
+    for ming, mokuai in (("Pillow", "PIL"), ("numpy", "numpy"), ("opencv", "cv2"),
+                         ("onnxruntime", "onnxruntime"),
+                         ("rapidocr", "rapidocr_onnxruntime")):
+        try:
+            __import__(mokuai)
+            ji("  库 %-12s 已安装" % ming)
+        except Exception as e:
+            ji("  库 %-12s 缺失！%s" % (ming, e))
+    ji("")
+    ji("")
+    _pei = du_api_peizhi()
+    if api_youxiao(_pei):
+        ji("灵光: 已接上（用 %s）" % _pei.get("model"))
+        try:
+            _t0 = time.time()
+            _t, _c = tianqi_zaiwang("北京天气", _pei.get("默认城市", "北京"))
+            ji("  实时天气: %s（%.1fs）" % (_t[:60] if _t else "失败：" + _c,
+                                          time.time() - _t0))
+        except Exception as e:
+            ji("  实时天气: 异常 %r" % (e,))
+    else:
+        ji("灵光: 还没接上（「API.txt」里的钥匙是空的）")
+    ji("")
+    ji("素材文件: %d 个 %s" % (len(quanbu), "、".join(quanbu[:3]) if quanbu else ""))
+    for biao, lu in (("人脸模型", FACE_MOGEN), ("物体模型", WUTI_MOGEN)):
+        ji("  %s: %s" % (biao, "在" if os.path.exists(lu) else "缺！" + lu))
+    ji("")
+    tu_lu = os.path.join(DIR, "识图", "cjd.png")
+    if os.path.exists(tu_lu):
+        try:
+            from PIL import Image
+            import numpy as np
+            tu = np.array(Image.open(tu_lu).convert("RGB"))[:, :, ::-1].copy()
+            zi, cuo = tiqu_wenzi(tu)
+            ji("  文字识别: %d 条%s" % (len(zi), ("  出错：" + cuo) if cuo else "  OK"))
+            lian, lcuo = zhao_renlian(tu)
+            ji("  人脸检测: %d 个%s" % (len(lian), ("  出错：" + lcuo) if lcuo else "  OK"))
+            wuti, wcuo = zhao_wuti(tu)
+            ji("  物体检测: %d 个%s" % (len(wuti), ("  出错：" + wcuo) if wcuo else "  OK"))
+        except Exception as e:
+            ji("  识图异常: %r" % (e,))
+    else:
+        ji("  没找到 识图/cjd.png，跳过识图检查")
+    wen = "\n".join(hang)
+    try:
+        print(wen)
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(DIR, "自检结果.txt"), "w", encoding="utf-8") as f:
+            f.write(wen + "\n")
+    except Exception:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    # 【整理助手的"看得见"模式】由主窗口拉起，在自己的 cmd 窗口里逐个移文件。
+    # 走同一个 SHFileOperationW 出口，只是把过程打到屏幕上，顺便自动打开回收站。
+    if "--整理删除" in sys.argv:
+        _i = sys.argv.index("--整理删除")
+        _qingdan = sys.argv[_i + 1] if len(sys.argv) > _i + 1 else ""
+        sys.exit(_zl_mingling_hang(_qingdan))
+    if "--自检" in sys.argv:
+        zai_jian()
+    else:
+        qidong()

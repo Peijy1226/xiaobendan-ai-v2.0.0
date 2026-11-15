@@ -1403,3 +1403,159 @@ class Qiao:
         # 所以自己记账：隐藏时打个标记，显示时清掉。
         try:
             if self._chuang is None:
+                return True
+            return not bool(getattr(self, "_cang_zhe", False))
+        except Exception:
+            return True
+
+    def ji_cang_zhe(self, cang):
+        """界面/托盘隐藏或显示时调一下，让主动消息知道该不该弹通知"""
+        self._cang_zhe = bool(cang)
+        return {"ok": True, "cang": self._cang_zhe}
+
+    # ---------- 八 · 关于 ----------
+    def guan_yu(self):
+        """版本与环境，全是真的（不写死）"""
+        import platform
+        neng = []
+
+        def shi(ming, biao):
+            try:
+                return {"ming": ming, "you": bool(biao())}
+            except Exception:
+                return {"ming": ming, "you": False}
+
+        neng.append(shi("灵光（联网大模型）", lambda: luoji.api_youxiao(self._pei)))
+        neng.append(shi("识图·本地 OCR", lambda: __import__("rapidocr_onnxruntime")))
+        neng.append(shi("识图·人脸/物体",
+                        lambda: os.path.exists(shitu.FACE_MOGEN)
+                        and os.path.exists(shitu.WUTI_MOGEN)))
+        neng.append(shi("整理助手",
+                        lambda: os.path.isdir(zhengli.zl_yanshi_lu())))
+        neng.append(shi("语音", lambda: __import__("edge_tts")))
+
+        return {
+            "python": "%s (%s)" % (platform.python_version(), platform.architecture()[0]),
+            "webview2": self._webview2_ban(),
+            "dabao": bool(getattr(sys, "frozen", False)),
+            "nenli": neng,
+        }
+
+    @staticmethod
+    def _webview2_ban():
+        """从注册表读 WebView2 版本（读不到就返回 '?'）"""
+        try:
+            import winreg
+            for lu in (r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients"
+                       r"\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+                       r"SOFTWARE\Microsoft\EdgeUpdate\Clients"
+                       r"\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"):
+                try:
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, lu) as k:
+                        v, _ = winreg.QueryValueEx(k, "pv")
+                        if v:
+                            return str(v)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return "?"
+
+    # ══════════════════════════════════════════════════════════════════
+    #  九 · 自己检查（给第五阶段的验收用）
+    # ══════════════════════════════════════════════════════════════════
+
+    def zi_jian(self):
+        """把关键能力过一遍，返回逐项结果。
+
+        为什么放在 api 而不是测试脚本里：用户双击 exe 之后，
+        想自己看一眼"哪样能用"时，从功能页「关于」就能调到这里。
+        返回的形状和界面上的展示一致，不为了测试另造一套。
+        """
+        out = []
+
+        def 项(ming, fn, shuo_bai=""):
+            try:
+                ok, xi = fn()
+            except Exception as e:
+                ok, xi = False, "异常：%s" % e
+            out.append({"ming": ming, "ok": bool(ok), "xi": xi or shuo_bai})
+
+        # ① 灵光
+        def _ling():
+            kai = bool(self._lingguang)
+            有 = bool(luoji.api_youxiao(self._pei))
+            return (kai and 有,
+                    "开着" if kai else "关着（没钥匙或手动关了）")
+        项("灵光（联网对话）", _ling)
+
+        # ② 识图三件
+        def _ocr():
+            import rapidocr_onnxruntime  # noqa: F401
+            return True, "RapidOCR 就绪"
+        项("识图·提字", _ocr)
+
+        def _ren():
+            return (os.path.exists(shitu.FACE_MOGEN),
+                    os.path.basename(shitu.FACE_MOGEN))
+        项("识图·认人", _ren)
+
+        def _wu():
+            return (os.path.exists(shitu.WUTI_MOGEN),
+                    os.path.basename(shitu.WUTI_MOGEN))
+        项("识图·认物", _wu)
+
+        # ③ 语音
+        def _yin():
+            return (self._you_tts(), "edge-tts 就绪")
+        项("语音", _yin)
+
+        # ④ 托盘 —— pystray 装在 vendor/ 里，不在系统 site-packages，
+        #    所以这里要先把 vendor 塞进 sys.path 才 import 得到
+        def _tuo():
+            try:
+                vd = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "vendor")
+                if not os.path.isdir(vd):
+                    vd = os.path.join(getattr(sys, "_MEIPASS", ""), "vendor")
+                if os.path.isdir(vd) and vd not in sys.path:
+                    sys.path.insert(0, vd)
+                import pystray  # noqa: F401
+                return True, "pystray 就绪"
+            except Exception as e:
+                return False, "没装（%s）" % e
+        项("托盘", _tuo)
+
+        # ④b 语音输入（和"语音输出"是两件事，分开列）
+        def _yinshu():
+            try:
+                from core import yuyin_shuru as ys
+                lu = ys.mogen_zai()
+                if not lu:
+                    return False, "还没下模型（点输入框右边的麦克风可以下）"
+                return True, os.path.basename(lu)
+            except Exception as e:
+                return False, "模块加载失败（%s）" % e
+        项("语音输入（按住说话）", _yinshu)
+
+        # ⑤ 素材
+        def _su():
+            n = len(luoji.JUZI) if hasattr(luoji, "JUZI") else 0
+            return (n > 100, "%d 句语料" % n)
+        项("聊天语料", _su)
+
+        def _bq():
+            mu = os.path.join(luoji.DIR, "表情", "灵光")
+            n = len([x for x in os.listdir(mu) if x.endswith(".png")]) \
+                if os.path.isdir(mu) else 0
+            return (n >= 10, "%d 张表情" % n)
+        项("表情", _bq)
+
+        # ⑥ 存档
+        def _cd():
+            lu = getattr(luoji, "CUNDANG_LU", "")
+            return (bool(lu) and os.path.isdir(os.path.dirname(lu)),
+                    os.path.basename(lu) if lu else "路径未知")
+        项("存档", _cd)
+
+        return {"ok": all(x["ok"] for x in out), "xiang": out}
