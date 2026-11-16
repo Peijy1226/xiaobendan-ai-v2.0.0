@@ -528,3 +528,85 @@
   font-size: var(--zt-xitong);
   line-height: 18px;
   color: #6fd3c7;
+  text-align: center;
+  padding: 0 8px;
+  margin-bottom: 5px;
+  position: relative;
+  z-index: 10;
+}
+
+/* ============================================================================
+   表情图：不套气泡，直接排在对话区
+   旧版 BQ_GAO = 148、BQ_ZUI_KUAN = 300（114-117 行），靠左，左边距 ZUO + 8
+   ========================================================================== */
+.biao-qing {
+  margin: 0 0 var(--duanju) 8px;
+  position: relative;
+  z-index: 10;
+}
+
+.biao-qing img {
+  /* 【148 → 124】原尺寸是照旧版 900×680 定的，但旧版没有这么多内容。
+     实测 148px 的表情图在一屏里占五分之一高，把对话压得只剩两三条。
+     124px 仍然看得清表情，又能多露一条消息。 */
+  height: 124px;
+  width: auto;
+  max-width: 260px;
+  display: block;
+  /* 表情图是人物立绘，边缘直接切在背景上很生硬，
+     加一层极淡的落影让它"站"在壁纸上，不是贴上去的。 */
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.34));
+}
+
+/* ============================================================================
+   首次引导卡
+   为什么不做弹窗：弹窗挡住界面，用户第一反应是找关闭按钮，不会读内容。
+   做成聊天区里的一张卡，跟着对话走，看完自然往上滚。
+   ========================================================================== */
+.yin-dao {
+  margin: 4px 8px 14px calc(var(--tou) + 18px);
+  padding: 15px 17px;
+  border-radius: 14px;
+  max-width: 420px;
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  border: 1px solid rgba(127, 196, 255, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 6px 22px rgba(0, 0, 0, 0.30);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+}
+
+.yd-biao {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #b6ddff;
+  margin-bottom: 9px;
+  letter-spacing: 0.3px;
+}
+
+.yd-shuo {
+  font-size: 12.8px;
+  line-height: 1.78;
+  color: rgba(226, 236, 246, 0.86);
+  margin-bottom: 11px;
+}
+
+.yd-shuo .yd-xiao {
+  font-size: 11.5px;
+  color: rgba(180, 196, 213, 0.62);
+}
+
+.yd-fen {
+  height: 1px;
+  margin: 13px 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.14),
+    rgba(255, 255, 255, 0.02)
+  );
+}
