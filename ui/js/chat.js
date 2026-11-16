@@ -189,3 +189,130 @@
       'Q -8.12 -8.12 -4.48 -10.92 ' +
       'Q -0.84 -13.72 1.54 -13.79 ' +
       'Q 3.92 -13.86 5.88 -10.85 ' +
+      'Q 7.84 -7.84 10.78 -3.92 ' +
+      'Q 13.72 0.00 -0.28 0.00 ' +
+      'Q -14.28 0.00 -11.20 -4.06 Z';
+
+    /* 内耳：旧版是硬三角（没走 smooth），掺 52% 白 */
+    var nei = 'M -8.12 -2.20 L 1.40 -7.70 L 7.56 -2.20 Z';
+
+    var fan = (ce === 'zuo') ? '' : ' transform="scale(-1,1)"';
+    s.innerHTML =
+      '<svg viewBox="-15 -15 30 16" width="26" height="14" ' +
+      'style="overflow:visible;display:block">' +
+      '<path class="er-wai" d="' + lu + '"' + fan + '/>' +
+      '<path class="er-nei" d="' + nei + '"' + fan + '/>' +
+      '</svg>';
+    return s;
+  }
+
+  function 样式类(n, kind) {
+    var ji = ['mao', 'yuan', 'tou-guang'][n] || 'mao';
+    return ji + (kind === 'wo' ? ' wo' : ' ta');
+  }
+
+  /* 表情图：不套气泡，靠左贴一条（旧版 BQ_GAO=148） */
+  function 造表情(文件) {
+    if (!文件) return null;
+    var d = document.createElement('div');
+    d.className = 'biao-qing';
+    var img = document.createElement('img');
+    img.src = 表情根 + 文件;
+    img.alt = '';
+    img.onerror = function () { d.remove(); };
+    d.appendChild(img);
+    return d;
+  }
+
+  /* ---------------- 对外 ---------------- */
+  function 加消息(kind, wenben, biaoti) {
+    var el = 造消息(kind, wenben, biaoti || '');
+    区.appendChild(el);
+    滚到底();
+    return el;
+  }
+
+  /* 表情图：不套气泡，靠左贴一条（旧版 BQ_GAO=148） */
+  function 加表情(文件) {
+    var d = 造表情(文件);
+    if (d) {
+      区.appendChild(d);
+      滚到底();
+    }
+  }
+
+  function 滚到底() {
+    /* 下一帧再滚，等图片解码完高度才准 */
+    requestAnimationFrame(function () {
+      区.scrollTop = 区.scrollHeight;
+    });
+  }
+
+  function 清空() {
+    区.innerHTML = '';
+  }
+
+  function 换样式(n) {
+    当前样式 = n;
+    var 所有 = 区.querySelectorAll('.qi-pao');
+    for (var i = 0; i < 所有.length; i++) {
+      var p = 所有[i];
+      var 是wo = p.classList.contains('wo');
+      p.className = 'qi-pao ' + 样式类(n, 是wo ? 'wo' : 'ta');
+    }
+    if (n === 2) 算透光字色();
+    Qiao.存样式(n);
+  }
+
+  /* 旧版 _di_wen_se：取气泡身后那块的平均亮度，>108 用深字。
+     新版没法跨域取像素，改用整窗平均亮度预判（壁纸是同一张）。 */
+  function 算透光字色() {
+    var 所有 = 区.querySelectorAll('.qi-pao.tou-guang');
+    /* 实测这张壁纸对话区亮度 78 < 108 → 浅字。写死比每次猜稳。 */
+    for (var i = 0; i < 所有.length; i++) {
+      所有[i].classList.remove('liang');
+    }
+  }
+
+  /* ---------------- 启动 ---------------- */
+  function 启动() {
+    当前样式 = Qiao.读样式();
+    同步样式按钮();
+
+    /* 【先拉头像状态】否则 头像缓存 是空的，开场那几条用裸路径；
+       用户换过头像又重启程序时，历史消息会显示旧图（浏览器缓存）。 */
+    try {
+      Promise.resolve(Qiao.头像状态()).then(function (st) {
+        记头像时间戳(st);
+        /* 已经画出来的（开场那几条）用新时间戳重画一遍 */
+        刷头像(st || {});
+      });
+    } catch (e) {
+      console.warn('[chat] 拉头像状态失败', e);
+    }
+
+    /* 问 Python 要开场：有存档就恢复，没有就摆开场白 */
+    Promise.resolve(Qiao.开场()).then(function (r) {
+      if (!r) {
+        加消息('ta', '（拉了拉深色的兜帽）……你来了。', 标题('平静'));
+        return;
+      }
+      if (r.duihua && r.duihua.length) {
+        /* 恢复历史：每条 [who, text, title] */
+        for (var i = 0; i < r.duihua.length; i++) {
+          var x = r.duihua[i];
+          加消息(x[0] === 'wo' ? 'wo' : 'ta', x[1], x[2] || '');
+        }
+      } else if (r.kai) {
+        /* 第一次打开：她说引导语（问名字），下面挂一张引导卡。
+           不是弹窗 —— 弹窗会挡住界面，而且用户第一反应是找关闭按钮。 */
+        var 引导 = r.yin_dao;
+        加消息('ta', (引导 && 引导.wen) || r.kaichang || '……你来了。',
+               标题('平静'));
+        加表情('平静.png');
+        if (引导) 摆引导卡(引导);
+      }
+      if (r.zhuangtai) 刷顶栏(r.zhuangtai);
+    }).catch(function (e) {
+      console.error('[chat] 开场失败', e);
+      加消息('ta', '（拉了拉深色的兜帽）……你来了。', 标题('平静'));
