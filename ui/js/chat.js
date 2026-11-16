@@ -316,3 +316,109 @@
     }).catch(function (e) {
       console.error('[chat] 开场失败', e);
       加消息('ta', '（拉了拉深色的兜帽）……你来了。', 标题('平静'));
+    });
+  }
+
+  /* ================= 首次引导卡 =================
+     两件事要一次问清：他叫什么（记忆的种子）、有没有填 API 钥匙。
+     不做成弹窗：弹窗会挡住界面，用户第一反应是找关闭按钮，
+     而不是读内容。做成聊天区里的一张卡，跟着对话走。 */
+  function 摆引导卡(引导) {
+    var 卡 = document.createElement('div');
+    卡.className = 'yin-dao';
+
+    var 内 = '<div class="yd-biao">先认识一下</div>';
+
+    if (引导.yao_ming) {
+      内 += '<div class="yd-shuo">告诉我你叫什么，我记着 —— ' +
+            '以后不用每次重新自我介绍。</div>' +
+            '<div class="yd-hang">' +
+            '<input class="yd-in" id="yd-ming" maxlength="12" ' +
+            'placeholder="比如：小裴">' +
+            '<button class="yd-an" id="yd-ming-qu">好</button>' +
+            '</div>';
+    }
+
+    if (引导.yao_yao) {
+      内 += '<div class="yd-fen"></div>' +
+            '<div class="yd-shuo">' +
+            '现在的我只会背台词。填一个 API 钥匙（DeepSeek，几毛钱能用很久），' +
+            '我才能真正跟你聊天、看书、写东西。<br>' +
+            '<span class="yd-xiao">在「☰ 功能 → 灵光」里填，也可以先跳过。</span></div>' +
+            '<div class="yd-hang"><button class="yd-an ci" id="yd-qu-lingguang">' +
+            '去填钥匙</button></div>';
+    }
+
+    卡.innerHTML = 内;
+    区.appendChild(卡);
+    滚到底();
+
+    var 名框 = 卡.querySelector('#yd-ming');
+    var 名钮 = 卡.querySelector('#yd-ming-qu');
+
+    function 交名字() {
+      var v = (名框 && 名框.value || '').trim();
+      if (!v) return;
+      Promise.resolve(Qiao.记名字(v)).then(function () {
+        卡.querySelector('.yd-biao').textContent = '记住了';
+        卡.querySelector('.yd-shuo').textContent =
+          '好，' + v + '。以后我就这么叫你。';
+        名框.remove();
+        名钮.remove();
+        加消息('ta', '（把这个名字在心里念了一遍）' + v + '……嗯，记住了。',
+               标题('平静'));
+      });
+    }
+    if (名框) {
+      名框.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') 交名字();
+      });
+    }
+    if (名钮) 名钮.addEventListener('click', 交名字);
+
+    var 去钮 = 卡.querySelector('#yd-qu-lingguang');
+    if (去钮) {
+      去钮.addEventListener('click', function () {
+        if (window.GongNeng) GongNeng.开('lingguang');
+      });
+    }
+  }
+
+  /* 顶栏：五颗心 + 状态字（旧版 _buju_ding 那两样） */
+  function 刷顶栏(z) {
+    if (!z) return;
+    var xin = document.querySelectorAll('#xin-zu i');
+    var n = z.xin || 1;
+    for (var i = 0; i < xin.length; i++) {
+      var man = i < n;
+      xin[i].classList.toggle('man', man);
+      xin[i].textContent = man ? '♥' : '♡';
+    }
+    var el = document.getElementById('zhuang-tai');
+    if (el && z.zhuangtai) el.textContent = z.zhuangtai;
+    document.getElementById('xin-zu').title =
+      '好感度 ' + z.haogan + '/100';
+  }
+
+  function 同步样式按钮() {
+    var 钮 = document.querySelectorAll('#yang-shi button');
+    for (var i = 0; i < 钮.length; i++) {
+      钮[i].classList.toggle('on', parseInt(钮[i].dataset.yang, 10) === 当前样式);
+    }
+  }
+
+  /* ---------------- 导出 ---------------- */
+  window.LiaoTian = {
+    加消息: 加消息,
+    加表情: 加表情,
+    清空: 清空,
+    换样式: 换样式,
+    滚到底: 滚到底,
+    刷顶栏: 刷顶栏,
+    刷头像: 刷头像,
+    标题: 标题,
+    取样式: function () { return 当前样式; }
+  };
+
+  Qiao.就绪后(启动);
+})();
