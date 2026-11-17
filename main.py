@@ -187,3 +187,89 @@ def main():
     try:
         from core.tuopan import TuoPan
         _tp = TuoPan(chuang, qiao)
+
+        # 【顺序很重要，而且必须先确认托盘起得来】
+        # 如果托盘没起来却把关闭改成"藏起来"，用户点 ✕ 之后窗口就
+        # 永远找不回来了 —— 程序还在跑，但看不见、点不到。
+        # 所以：先起托盘，起来了才允许"关闭 = 隐藏"。
+        if _tp.qi_dong():
+            # 【真退出时必须放行，否则托盘「退出」点不动】
+            # closing 处理函数返回 False = 取消关闭。托盘退出走的是
+            # chuang.destroy()，而 destroy() **也会触发 closing** ——
+            # 于是被这里拦下：窗口没销毁、主循环还活着、进程不退出。
+            # 实测：点托盘「退出」后 closing 被触发，然后什么都没发生。
+            # 治法：加一个"正在真退出"的开关，置上之后就让关。
+            _zheng_tui = {"zai": False}
+
+            def _guan(*_):
+                """点 ✕：藏到托盘。返回 False 阻止 pywebview 销毁窗口。
+
+                pywebview 的 closing 事件：处理函数**返回 False = 取消关闭**。
+                但托盘「退出」已经把 _zheng_tui 置 True，那就放行。
+                """
+                if _zheng_tui["zai"]:
+                    return True         # 放行，让窗口真的关掉
+                try:
+                    chuang.hide()
+                    try:
+                        qiao.ji_cang_zhe(True)
+                    except Exception:
+                        pass
+                    # 第一次藏起来时告诉她一声，否则用户会以为程序没了
+                    if not getattr(_tp, "_ti_guo", False):
+                        _tp._ti_guo = True
+                        try:
+                            chuang.evaluate_js(
+                                "setTimeout(function(){"
+                                "LiaoTian.加消息('ta','（躲到右下角去了）"
+                                "要我再出来，点一下托盘里我。',"
+                                "'小笨蛋 （・ω・） 招手');}, 60)")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return False
+
+            chuang.events.closing += _guan
+            # 把开关交给托盘，它退出前置一下
+            _tp.zhen_tui = lambda: _zheng_tui.__setitem__("zai", True)
+
+            # 【图标自愈】托盘图标是向 explorer 注册的，explorer 重启后
+            # 注册就没了 —— 图标消失、进程还在、点不到菜单。
+            # 起个后台巡检，图标丢了自动重建。
+            try:
+                _tp.kan_hu()
+            except Exception as e:
+                print("[main] 托盘巡检没起来（不影响使用）：%s" % e)
+
+            # 【界面里的「彻底退出」也要用这套】
+            # 托盘图标在 explorer 重启后会失效（图标消失但进程还在），
+            # 那时用户点不到托盘菜单，必须有第二条退出路。
+            try:
+                qiao._zhen_tui = lambda: _zheng_tui.__setitem__("zai", True)
+                qiao._ting_tuo = _tp.ting
+            except Exception:
+                pass
+            print("[main] 关闭 = 藏到托盘已启用（托盘退出会放行）")
+
+            # ---- 主动消息 ----
+            # 每分钟问一次"现在该说话吗"，该说就推气泡或发通知。
+            # 窗口藏起来时要发系统通知，所以先告诉它怎么判断可见。
+            try:
+                from core.zhu_dong import ZhuDong
+                _zd = ZhuDong(chuang, qiao)
+                qiao.ji_cang_zhe(False)
+                _zd.qi_dong()
+
+                # 托盘「显示她」时把标记清掉
+                _yuan_xian = _tp._xian
+
+                def _xian_le(*a):
+                    try:
+                        qiao.ji_cang_zhe(False)
+                    except Exception:
+                        pass
+                    return _yuan_xian(*a)
+
+                _tp._xian = _xian_le
+            except Exception as e:

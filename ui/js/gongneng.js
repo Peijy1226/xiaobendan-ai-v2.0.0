@@ -818,3 +818,322 @@
 
   /* ================================================================
      ⑨ 灵光（联网）
+     ================================================================ */
+  页.lingguang = function (父) {
+    父.appendChild(说明(
+      '开着走联网大模型，关着走本地规则引擎（也就是旧版那套）。' +
+      '<b>开发版建议一直开着</b>。'));
+
+    var 说 = 说明('');
+    说.id = 'gn-yao-shi';
+    var 钥 = 输入('api key（sk- 开头）', '');
+    钥.type = 'password';
+
+    function 刷() {
+      Promise.resolve(Qiao.灵光状态()).then(function (r) {
+        r = r || {};
+        if (!r.you_yao) {
+          说.innerHTML = '还没填钥匙。填上就能用，存在 <code>ui/API.txt</code>，' +
+            '不会上传到任何地方。<br>' +
+            '去哪拿：<code>platform.deepseek.com</code> → API keys → 创建 → 复制。';
+        } else {
+          说.innerHTML = '钥匙已填，模型 <code>' + (r.moxing || '?') + '</code>。' +
+            '现在是<b>' + (r.kai ? '开着' : '关着') + '</b>。';
+          钥.value = '';
+          钥.placeholder = '要换钥匙就填新的，不换留空';
+        }
+      });
+    }
+    刷();
+
+    父.appendChild(说);
+    父.appendChild(行(钥, 按钮('保存钥匙', function () {
+      var k = 钥.value.trim();
+      if (!k) { 结果(父, '钥匙是空的。', 'ruo'); return; }
+      忙(父, '正在试…');
+      Promise.resolve(Qiao.存钥匙(k)).then(function (r) {
+        if (!r || !r.ok) { 结果(父, (r && r.cuo) || '存失败。', 'cuo'); return; }
+        结果(父, '存好了。' + (r.shi ? '已经试通了一次。' : ''));
+        刷();
+      });
+    })));
+
+    var 开钮 = 按钮('', function () {
+      Promise.resolve(Qiao.灵光状态()).then(function (r) {
+        Promise.resolve(Qiao.开灵光(!(r && r.kai))).then(function () { 刷(); 刷钮(); });
+      });
+    });
+    父.appendChild(行(开钮));
+
+    function 刷钮() {
+      Promise.resolve(Qiao.灵光状态()).then(function (r) {
+        开钮.textContent = (r && r.kai) ? '关掉灵光' : '开启灵光';
+        开钮.className = 'gn-an' + ((r && r.kai) ? '' : ' ci');
+      });
+    }
+    刷钮();
+  };
+
+  /* ================================================================
+     ⑩ 记忆
+     ================================================================ */
+  页.jiyi = function (父) {
+    父.appendChild(说明('她从聊天里记下来的东西。记错了可以删，删了就不再提。'));
+
+    var 列 = 造('div', 'gn-jiyi');
+    父.appendChild(列);
+
+    function 刷() {
+      Promise.resolve(Qiao.记忆()).then(function (r) {
+        列.innerHTML = '';
+        var d = (r && r.dong) || {};
+        var 有 = false;
+        /* 按"身份 → 生活 → 口味 → 其他"的顺序显示，不跟着 JSON 顺序乱跳 */
+        var 顺序 = ['名字', '生日', '工作', '住处', '家人', '宠物',
+                   '喜欢', '讨厌', '怕', '习惯', '重要的事'];
+        var 键 = 顺序.filter(function (k) { return d[k]; })
+          .concat(Object.keys(d).filter(function (k) {
+            return 顺序.indexOf(k) < 0 && k !== '更新' && d[k];
+          }));
+        键.forEach(function (k) {
+          var v = d[k];
+          if (!v) return;
+          /* 「更新」是内部记账字段，不是记忆 —— 显示出来会让人以为记住了日期 */
+          if (k === '更新') return;
+          有 = true;
+          列.appendChild(造('div', 'gn-jy',
+            '<span class="biao">' + k + '</span><span class="zhi">' +
+            String(v).replace(/[<>&]/g, function (c) {
+              return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+            }) + '</span>'));
+        });
+        if (!有) {
+          列.appendChild(造('div', 'gn-kong',
+            '还没记住什么。聊几句「我叫什么」「我喜欢什么」，她就记住了。'));
+        }
+      });
+    }
+    刷();
+
+    /* 后台补记完会派发这个事件 —— 不用用户手动点刷新 */
+    document.addEventListener('jiyi-gengxin', 刷);
+
+    父.appendChild(行(
+      按钮('刷新', 刷, 'ci'),
+      按钮('清空记忆', function () {
+        忙(父, '清空中…');
+        Promise.resolve(Qiao.清记忆()).then(function () { 刷(); 结果(父, '清空了。'); });
+      }, 'xian')));
+
+    父.appendChild(说明(
+      '她只记你<b>明确说过</b>的事（名字、宠物、喜欢什么、在做什么）。' +
+      '疑问和玩笑不记 —— 记错了比不记更伤人。<br>' +
+      '档案在 <code>ui/记忆_重要的事.json</code>，可以自己打开看。'));
+  };
+
+  /* ================================================================
+     ⑪ 忘记我吧
+     ================================================================ */
+  页.qingkong = function (父) {
+    父.appendChild(说明(
+      '会清掉：<b>所有对话记录</b>、<b>好感度</b>、<b>轮数</b>、<b>心情</b>。<br>' +
+      '不会动：你的素材、壁纸、头像、记忆档案。<br>' +
+      '<b>清掉之后找不回来。</b>'));
+
+    var 确认 = 造('input');
+    确认.type = 'checkbox';
+    var 标 = 造('label');
+    标.style.cssText = 'font-size:13px;color:var(--se-dan);display:flex;align-items:center;gap:7px';
+    标.appendChild(确认);
+    标.appendChild(document.createTextNode('我知道，清掉就找不回来了'));
+    父.appendChild(行(标));
+
+    var 钮 = 按钮('忘记我吧', function () {
+      if (!确认.checked) {
+        结果(父, '先勾一下上面那句。', 'ruo');
+        return;
+      }
+      Promise.resolve(Qiao.清空()).then(function () {
+        LiaoTian.清空();
+        结果(父, '清空了。下次打开就是第一次见面。');
+      });
+    }, 'xian');
+    父.appendChild(行(钮));
+  };
+
+  /* ================================================================
+     ⑫ 帮助
+     ================================================================ */
+  页.bangzhu = function (父) {
+    /* 帮助页分三块：会什么 / 怎么用 / 换素材。
+       全部用 <br> 排版，不靠 \n —— 靠 \n 一改 CSS 就散架。 */
+    父.appendChild(说明(
+      '<b>直接说话就行</b>，她接得住。下面这些会走专门的工具：'));
+    父.appendChild(造('div', 'gn-shuo', (function () {
+      var 行 = [
+        ['报时', '现在几点 / 今天几号 / 星期几'],
+        ['算数', '1+1等于几 / 帮我算 365×24 / 2的10次方'],
+        ['笑话', '讲个笑话 / 来个段子'],
+        ['天气', '今天天气怎么样 / 明天会下雨吗（联网时给实时数据）'],
+        ['美食', '中午吃什么 / 推荐点好吃的'],
+        ['王者', '射手玩什么英雄 / 打野怎么出装']
+      ];
+      return 行.map(function (x) {
+        return '<b>' + x[0] + '</b>　' + x[1];
+      }).join('<br>');
+    })()));
+
+    父.appendChild(造('div', 'gn-shuo',
+      '<b>快捷键</b>　Enter 发送 · 拖标题栏移动窗口 · 最小化在右上角<br>' +
+      '<b>字号</b>　「字体大小」那页能拖，12 到 20<br>' +
+      '<b>气泡</b>　顶栏三颗按钮，或「个性化」那页'));
+
+    父.appendChild(造('div', 'gn-shuo',
+      '<b>她记得你</b>　说过「我叫什么」「我喜欢什么」「我养了只猫」，' +
+      '她自己会记下来，下次接着提。<br>' +
+      '<b>好感度</b>　她越熟越放得开。满 100 会换成另一种语气。<br>' +
+      '<b>换素材</b>　<code>ui/素材/</code> 放聊天语料，<code>ui/表情/</code> 放表情图，' +
+      '<code>ui/语料/</code> 放自己写的句子。'));
+  };
+
+  /* ================================================================
+     ⑬ 关于
+     ================================================================ */
+  页.guanyu = function (父) {
+    /* 先摆骨架再异步填 —— 第一版直接等 Promise，点开有半秒空白，
+       验收脚本在 0.32 秒时看到的就是空的。骨架还能当"正在读环境"的提示。 */
+    var 框 = 说明(
+      '<b>小笨蛋</b>　产品版<br>' +
+      '壳：HTML + CSS + WebView2（无边框自绘）<br>' +
+      '逻辑：旧版 21,255 行里抽出来的 7,637 行<br>' +
+      '壁纸：视频 1280×720 / 30fps<br><br>' +
+      '<span class="gn-mang"></span>正在读运行环境…');
+    父.appendChild(框);
+
+    Promise.resolve(Qiao.关于()).then(function (r) {
+      r = r || {};
+      框.remove();
+      父.appendChild(说明(
+        '<b>小笨蛋</b>　产品版<br>' +
+        '壳：HTML + CSS + WebView2（无边框自绘）<br>' +
+        '逻辑：旧版 21,255 行里抽出来的 7,637 行<br>' +
+        '壁纸：视频 1280×720 / 30fps<br><br>' +
+        '<b>运行环境</b><br>' +
+        'Python　' + (r.python || '?') + '<br>' +
+        'WebView2　' + (r.webview2 || '?') + '<br>' +
+        '打包　' + (r.dabao ? '是' : '否（开发模式）') + '<br><br>' +
+        /* 「能力」那行删了 —— 下面的自检区已经逐项列了，
+           两处重复反而让人不知道该看哪个。 */
+        '作者：Pei　·　这份程序只在这台电脑上。'));
+
+      /* 自检：逐项列出来，一眼看出哪样不能用 */
+      var 自检框 = 造('div');
+      自检框.style.marginTop = '18px';
+      自检框.appendChild(造('div', 'gn-pian', '自检'));
+      父.appendChild(自检框);
+
+      Promise.resolve(Qiao.自检()).then(function (z) {
+        z = z || { xiang: [] };
+        var 列 = 造('div');
+        列.style.cssText = 'margin-top:8px;display:flex;flex-direction:column;gap:5px';
+        (z.xiang || []).forEach(function (x) {
+          var d = 造('div', 'gn-jy');
+          d.innerHTML = '<span class="biao" style="color:' +
+            (x.ok ? '#8be89b' : '#ffb8b8') + '">' +
+            (x.ok ? '有' : '没') + '</span>' +
+            '<span class="zhi">' + x.ming +
+            '<span style="color:rgba(180,196,213,.5);font-size:11.5px">　' +
+            String(x.xi || '').replace(/[<>&]/g, function (c) {
+              return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+            }) + '</span></span>';
+          列.appendChild(d);
+        });
+        自检框.appendChild(列);
+      });
+
+      /* ---------- 退出 ---------- */
+      /* 【为什么这里必须有个退出按钮】
+         托盘图标在 explorer 重启后会失效（图标从任务栏消失），
+         但进程还活着。这时候关窗口只会藏起来，托盘又点不到 ——
+         用户只能开任务管理器，这是设计缺陷。
+         所以留一条不依赖托盘的退出路。 */
+      var 退框 = 造('div');
+      退框.style.marginTop = '20px';
+      退框.appendChild(造('div', 'gn-pian', '退出'));
+      退框.appendChild(说明(
+        '托盘图标如果不见了（右下角找不到 ⚪），' +
+        '点下面的按钮可以直接结束程序。'));
+      var 退行 = 造('div', 'gn-hua-niu');
+      退行.style.borderTop = 'none';
+      退行.appendChild(按钮('彻底退出小笨蛋', function () {
+        /* 二次确认 —— 误点就把她关了，回来得重新开 */
+        if (!window.confirm('要关掉小笨蛋吗？\n\n她会先存好你们的对话，' +
+                            '下次打开接着聊。')) return;
+        Qiao.彻底退出();
+        /* 界面会给 1.5 秒后硬退，这里先把按钮置灰免得连点 */
+        setTimeout(function () {
+          document.body.innerHTML =
+            '<div style="height:100vh;display:flex;align-items:center;' +
+            'justify-content:center;color:#8fa4bb;font:14px system-ui">' +
+            '（她收拾东西去了……）</div>';
+        }, 120);
+      }, 'ci'));
+      退框.appendChild(退行);
+      父.appendChild(退框);
+    });
+  };
+
+  /* ================================================================
+     开关
+     ================================================================ */
+  function 开页(哪) {
+    面板.classList.add('kai');
+    建菜单();
+    切页(哪 || 当前);
+  }
+
+  function 关() {
+    面板.classList.remove('kai');
+  }
+
+  window.GongNeng = {
+    开: 开页,
+    关: 关,
+    切换: function () {
+      if (面板.classList.contains('kai')) 关();
+      else 开页();
+    },
+    在开: function () { return 面板.classList.contains('kai'); }
+  };
+
+  /* 点遮罩空白处关 */
+  面板.addEventListener('mousedown', function (e) {
+    if (e.target === 面板) 关();
+  });
+
+  document.getElementById('gn-guan').addEventListener('click', 关);
+
+  /* Esc 关 —— 旧版没有，但这是 WebView 里的常识 */
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && 面板.classList.contains('kai')) {
+      e.stopPropagation();
+      关();
+    }
+  });
+
+  /* 发到聊天：功能页里的"算"这种，直接把话送到输入框并发送 */
+  function 发到聊天(t) {
+    var 框 = document.getElementById('shu-ru');
+    var 钮 = document.getElementById('fa-song');
+    if (框 && 钮) {
+      框.value = t;
+      钮.click();
+    }
+  }
+
+  /* 启动时把字号读回来 */
+  (function () {
+    var v = localStorage.getItem('ziti');
+    if (v) 设字号(parseFloat(v));
+  })();
+})();
