@@ -125,3 +125,87 @@ class TuoPan:
             pass
 
         # ④ 兜底：3 秒后如果进程还在，硬退。
+        #    为什么要有这一步：pywebview 的 destroy 在某些情况下
+        #    不会让 webview.start() 返回（比如还有后台线程持有 GIL），
+        #    那样用户点了退出、窗口消失了、进程却挂在任务管理器里。
+        import os as _os
+        import threading as _t
+
+        def _ying_tui():
+            import time as _ti
+            _ti.sleep(3.0)
+            print("[托盘] 窗口没关干净，强制结束进程")
+            _os._exit(0)
+
+        _t.Thread(target=_ying_tui, daemon=True).start()
+
+    # ---------------- 启动 ----------------
+    def qi_dong(self):
+        """起托盘线程。pystray 没装时静默跳过（不影响主程序）。"""
+        if pystray is None:
+            print("[托盘] 没装 pystray，跳过（不影响使用）")
+            return False
+        try:
+            self._icon = pystray.Icon(
+                "小笨蛋",
+                icon=self._zuo_tu(),
+                title="小笨蛋 —— 双击显示",
+                menu=pystray.Menu(
+                    项("显示她", self._xian, default=True),
+                    项("藏起来", self._cang),
+                    项("让她说句话", self._shuo),
+                    pystray.Menu.SEPARATOR,
+                    项("退出", self._tui),
+                ),
+            )
+            # 左键单击：pystray 的 default 菜单项在左键触发
+            self._icon.run_detached()
+            return True
+        except Exception as e:
+            print("[托盘] 启动失败（不影响使用）：%s" % e)
+            return False
+
+    def ting(self):
+        self._ting_zhi = True
+        try:
+            if self._icon:
+                self._icon.stop()
+        except Exception:
+            pass
+
+    # ---------------- 图标失效自愈 ----------------
+    # 【为什么会失效】托盘图标是向 explorer.exe 注册的。
+    # explorer 重启（或崩溃重开）之后，注册就没了 —— 图标从任务栏消失，
+    # 但程序还在跑，用户点不到任何菜单。
+    # pystray 会监听 TaskbarCreated 消息尝试重新注册，但不总成功。
+    # 所以这里加一个后台巡检：每 30 秒看一眼图标窗口还在不在，
+    # 不在就停掉重建一个。
+    def kan_hu(self, jian_ge=30.0):
+        """起一个后台线程，定期检查托盘图标是否还活着"""
+        import threading as _t
+
+        def _xun():
+            import time as _ti
+            while not getattr(self, "_ting_zhi", False):
+                _ti.sleep(jian_ge)
+                try:
+                    if self._icon is None:
+                        break
+                    # pystray 的 _hwnd 是内部属性，没有就说明没起来
+                    if not getattr(self._icon, "_hwnd", None):
+                        print("[托盘] 图标句柄丢了，重建")
+                        self._chong_jian()
+                except Exception as e:
+                    print("[托盘] 巡检出错（忽略）：%s" % e)
+
+        _t.Thread(target=_xun, daemon=True).start()
+
+    def _chong_jian(self):
+        """停掉旧图标、重建一个"""
+        try:
+            if self._icon:
+                self._icon.stop()
+        except Exception:
+            pass
+        self._icon = None
+        self.qi_dong()
