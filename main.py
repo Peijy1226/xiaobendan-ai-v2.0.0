@@ -273,3 +273,71 @@ def main():
 
                 _tp._xian = _xian_le
             except Exception as e:
+                print("[main] 主动消息没起来（不影响使用）：%s" % e)
+        else:
+            print("[main] 托盘没起来，关闭仍是真退出（安全起见）")
+    except Exception as e:
+        print("[main] 托盘没起来（不影响使用）：%s" % e)
+
+    webview.start(
+        xian_shi_hou,
+        debug=("--debug" in sys.argv),
+        icon=zi_yuan("ui", "素材", "app_icon.ico"),
+        # 运行数据（WebView2 缓存）落程序目录，不写 C 盘
+        storage_path=zi_yuan("_数据"),
+        private_mode=False,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    if "--自检" in sys.argv:
+        # 打包后最怕"能开窗口但识图用不了"。这个模式不开窗口，
+        # 只把依赖 / 模型 / 素材能不能用写成一份 txt，扔在 exe 旁边。
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        try:
+            from core import shitu as _st
+            from core import luoji as _lj
+            from core import zhengli as _zl
+            _hang = [
+                "小笨蛋 自检",
+                "Python  %s" % sys.version.split()[0],
+                "程序目录  %s" % zi_yuan(),
+                "打包运行  %s" % bool(getattr(sys, "frozen", False)),
+                "",
+            ]
+            for _m in ("PIL", "numpy", "cv2", "onnxruntime",
+                       "rapidocr_onnxruntime", "webview"):
+                try:
+                    __import__(_m)
+                    _hang.append("  库 %-22s 有" % _m)
+                except Exception as _e:
+                    _hang.append("  库 %-22s 缺  %s" % (_m, _e))
+            _hang.append("")
+            for _b, _lu in (("人脸模型", _st.FACE_MOGEN),
+                            ("物体模型", _st.WUTI_MOGEN)):
+                _hang.append("  %s  %s  %s" % (
+                    _b, "在" if os.path.exists(_lu) else "缺！", _lu))
+            _hang.append("")
+            _hang.append("  素材 %d 个" % len(_lj.JUZI))
+            _hang.append("  演示夹 %s" % _zl.zl_yanshi_lu())
+            try:
+                import cv2
+                import numpy as _np
+                _tu = _np.zeros((80, 80, 3), dtype=_np.uint8)
+                _r1, _c1 = _st.zhao_renlian(_tu)
+                _r2, _c2 = _st.zhao_wuti(_tu)
+                _hang.append("  认人 跑通（%d 个，%s）" % (len(_r1), _c1 or "无错"))
+                _hang.append("  认物 跑通（%d 个，%s）" % (len(_r2), _c2 or "无错"))
+            except Exception as _e:
+                _hang.append("  识别 跑不起来：%s" % _e)
+
+            _lu = zi_yuan("自检结果.txt")
+            with open(_lu, "w", encoding="utf-8") as _f:
+                _f.write("\n".join(_hang) + "\n")
+            print("\n".join(_hang))
+            print("\n已写入 %s" % _lu)
+        except Exception as _e:
+            print("自检失败：%s" % _e)
+        sys.exit(0)
+    sys.exit(main())
