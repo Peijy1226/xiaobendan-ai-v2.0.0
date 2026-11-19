@@ -28,18 +28,21 @@ So memory got the most work; everything else grew around it. Two layers: rules e
 
 ## What she does
 
-| Feature | Notes | Needs key |
-|---|---|---|
-| Chat | Online replies; 515 canned lines offline | Online yes |
-| Remembers you | Name, pets, likes, job, city — across sessions | No |
-| Speaks up | Chimes in after a quiet spell; system notification when hidden | No |
-| Reads aloud | 🔊 in the title bar, edge-tts | No |
-| Listens | 🎤 next to the input, hold to talk, local recognition | No |
-| Sees images | OCR text, face detection, object detection | No |
-| Writes | Narrative / argumentative / expository / letter | Yes |
-| Sorts files | Groups a folder by file type | No |
-| Wallpaper | Video wallpapers keep playing | No |
-| Tweaks | Font 12–20, three bubble styles, four blur sliders | No |
+**Chat.** Real replies when online, 515 canned lines offline. Time, arithmetic, jokes, unit conversion, OCR, file sorting all work without a key — only free-form conversation needs one.
+
+**Remember you.** Your name, your cat, what you like, what you do, where you live. Across sessions. Mention you're working late and she might ask the next day how late you actually slept.
+
+**Speak up.** Goes quiet for a while and she'll chime in. Hidden in the tray, she can't talk, so she sends a system notification instead.
+
+**Read aloud, and listen.** The 🔊 in the title bar reads her lines out, synthesized with edge-tts. The 🎤 next to the input is hold-to-talk, recognized locally — no network, nothing uploaded.
+
+**Look at images.** Hand her a picture: she'll pull the text out, count the faces, tell you what the object is.
+
+**Write.** Narrative, argumentative, expository, letters. Give her a topic.
+
+**Sort files.** Point her at a folder, she groups by file type.
+
+**Change the wallpaper.** Video wallpapers keep playing — not a still frame. Drop your own into `ui/素材/壁纸/`.
 
 ## Where she goes when you close the window
 
@@ -59,7 +62,7 @@ Cat ears, rounded, and frosted glass. The frosted one uses real `backdrop-filter
 
 The cat-ear ears are SVG. The path isn't hand-drawn — it's the 6 control points from the Tkinter version's `create_polygon(smooth=True)`, converted to Béziers via quadratic B-spline.
 
-I tried adding tail and ear animations to the bubbles. Spent a week, six versions of the tail, every one looked like a worm. User's words: "creepy as hell." Deleted all of it.
+I tried adding tail and ear animations to the bubbles. Six versions of the tail, every one looked like a worm. User's words: "creepy as hell." Deleted all of it.
 
 ## Tuning the UI
 
@@ -255,13 +258,13 @@ netstat -ano | grep LISTENING   # make sure the old port is gone
 
 ## Known issues
 
-| Issue | Why it's not fixed |
-|---|---|
-| Weather API unreachable | `open-meteo` TLS handshake times out on some networks. Not a code problem |
-| Speech recognition is mediocre | Ceiling of the Vosk small model. A bigger one costs 500MB more — not worth it |
-| No single-instance guard | Two copies fight over `ui/存档.json`. A named mutex would fix it; haven't bothered |
-| No code signing | Certificates run a few hundred dollars a year. Too much for a free toy |
-| No installer | Green folder, unzip and run. Would need Inno Setup |
+**Weather never answers.** `open-meteo` times out on TLS handshake from here; occasionally works on other networks. Not a code problem, that's just the endpoint.
+
+**Speech recognition is inaccurate.** Ceiling of the Vosk small model. Clear Mandarin is fine, accents make it guess. A bigger model helps, but costs 500MB more — not worth it.
+
+**Two instances fight.** No single-instance guard, so both processes write to the same `ui/存档.json`. A named mutex would fix it; never got around to it.
+
+**First launch gets blocked.** Unsigned, so SmartScreen shows "unknown publisher." Click "More info" → "Run anyway." Certificates run a few hundred dollars a year, too much for a free toy.
 
 ## Wanted but didn't
 
