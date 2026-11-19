@@ -130,3 +130,60 @@ pip install -r requirements.txt
 python 下载模型.py
 python main.py
 ```
+
+`--debug` 开 F12，`--自检` 不开窗口只写环境清单。
+
+`vendor/` 是我把 pystray / sounddevice / vosk 单独装的地方，为了系统 site-packages 干净。不是必须的，代码两个位置都找。要用就：
+
+```bash
+pip install --target vendor pystray sounddevice vosk srt requests tqdm
+```
+
+## 打包
+
+```bash
+python -m PyInstaller 打包.spec --noconfirm
+```
+
+产物 416 MB。**大头不是我的代码**：
+
+| 什么 | 多大 |
+|---|---|
+| opencv（`cv2.pyd`） | 82 MB |
+| Vosk 中文模型 | 66 MB |
+| yolox onnx | 35 MB |
+
+我的代码加起来不到 1 MB。
+
+打包完记得手动 `cp -r ui dist/小笨蛋/` —— ui 不打进 exe，为的是用户能自己换壁纸贴表情。
+
+## 改她的性格
+
+`ui/人设.txt`，改完重启生效。
+
+里面写着：她是谁、说话什么调子、哪些话题不接、遇到不认识的怎么糊过去。提示词是按这个文件拼的，改一行就换一种人。
+
+## 加台词
+
+`ui/语料/*.txt`，一行一句。启动时全部读进内存，515 句现在只占几十 KB，加几千句也不卡。
+
+## 换表情
+
+`ui/表情/灵光/` 和 `ui/表情/离线/`，文件名就是心情：平静、开心、兴奋、得意、委屈、困惑、关心。多了会自动认，缺了就不显示。
+
+## 发布
+
+打 tag 推上去，GitHub Actions 会自动在 Windows 机器上编译并挂到 Release：
+
+```bash
+git tag v2.1.0
+git push origin v2.1.0
+```
+
+配置在 `.github/workflows/build.yml`，约 10 分钟出包。
+
+---
+
+## License
+
+MIT

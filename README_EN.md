@@ -130,3 +130,60 @@ pip install -r requirements.txt
 python 下载模型.py
 python main.py
 ```
+
+`--debug` opens F12. `--自检` skips the window and just writes an environment report.
+
+`vendor/` is where I installed pystray / sounddevice / vosk to keep the system site-packages clean. Not required — the code looks in both places. If you want it:
+
+```bash
+pip install --target vendor pystray sounddevice vosk srt requests tqdm
+```
+
+## Building
+
+```bash
+python -m PyInstaller 打包.spec --noconfirm
+```
+
+416 MB output. **Most of it isn't my code**:
+
+| What | Size |
+|---|---|
+| OpenCV (`cv2.pyd`) | 82 MB |
+| Vosk Chinese model | 66 MB |
+| yolox onnx | 35 MB |
+
+My code is under 1 MB total.
+
+After building, manually `cp -r ui dist/小笨蛋/` — ui isn't bundled into the exe so users can swap wallpapers and add reaction images.
+
+## Changing her personality
+
+`ui/人设.txt`. Restart to apply.
+
+It defines who she is, how she talks, what she won't touch, and how she bluffs when she doesn't know. The prompt is assembled from this file — change one line, change the character.
+
+## Adding lines
+
+`ui/语料/*.txt`, one per line. Loaded into memory at startup; 515 lines take tens of KB, so a few thousand more won't hurt.
+
+## Swapping reaction images
+
+`ui/表情/灵光/` and `ui/表情/离线/`. The filename is the mood: 平静 (calm), 开心 (happy), 兴奋 (excited), 得意 (smug), 委屈 (wronged), 困惑 (confused), 关心 (caring). Extras are picked up automatically, missing ones just don't show.
+
+## Releasing
+
+Tag and push; GitHub Actions builds on a Windows runner and attaches the zip to the Release:
+
+```bash
+git tag v2.1.0
+git push origin v2.1.0
+```
+
+Config lives in `.github/workflows/build.yml`. Takes about 10 minutes.
+
+---
+
+## License
+
+MIT
