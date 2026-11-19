@@ -1,0 +1,86 @@
+# 打 tag（v2.0.0 这种）时，在 GitHub 的 Windows 机器上自动编译并挂到 Release。
+# 不用在自己电脑上跑 PyInstaller 了，但要等 10 分钟左右。
+#
+# 流程：
+#   1. 装 Python 3.12 + 依赖
+#   2. 下模型（下载模型.py）
+#   3. PyInstaller 打包
+#   4. ui/ 拷到 dist/ 旁边，删掉 API.txt / 存档
+#   5. 压 zip 传到 Release
+#
+# 【踩过的坑】
+# ① windows-latest 的默认 shell 是 pwsh，不是 cmd。
+#    所以不能写 `del /Q`、`xcopy`，那些是 cmd 语法，pwsh 会把 `del` 当 Remove-Item，
+#    参数 `/Q` 它不认，直接报 "positional parameter cannot be found"。
+# ② runner 的控制台编码是 cp1252，脚本里 print 中文会 UnicodeEncodeError。
+#    所以下面设了 PYTHONIOENCODING / PYTHONUTF8。
+# ③ 仓库里没有 ui/API.txt（.gitignore 排除了），但打包前还是显式删一遍，
+#    防止哪天本地把文件误提交进来。
+
+name: build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: 下模型
+        run: python 下载模型.py
+
+      - name: 打包
+        run: python -m PyInstaller 打包.spec --noconfirm
+
+      - name: 把 ui 拷到 exe 旁边
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force ui "dist/小笨蛋/ui"
+          Remove-Item "dist/小笨蛋/ui/API.txt" -Force -ErrorAction SilentlyContinue
+          Remove-Item "dist/小笨蛋/ui/存档.json" -Force -ErrorAction SilentlyContinue
+          Remove-Item "dist/小笨蛋/ui/记忆_重要的事.json" -Force -ErrorAction SilentlyContinue
+          Copy-Item 使用说明.txt "dist/小笨蛋/" -Force
+          Write-Host "ui/API.txt 还在吗: $(Test-Path 'dist/小笨蛋/ui/API.txt')"
+
+      - name: 压 zip
+        shell: pwsh
+        run: |
+          $name = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { 'dev' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = Join-Path $PWD "xiaobendan-$name-win64.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            (Join-Path $PWD 'dist/小笨蛋'), $zip,
+            [System.IO.Compression.CompressionLevel]::Optimal, $false)
+          Write-Host "zip: $([math]::Round((Get-Item $zip).Length / 1MB)) MB"
+
+      - name: 传 Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: xiaobendan-*-win64.zip
+          generate_release_notes: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
