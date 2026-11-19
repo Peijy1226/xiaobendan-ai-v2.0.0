@@ -1,0 +1,66 @@
+# 打 tag（v1.0.0 这种）时，在 GitHub 的 Windows 机器上自动编译并挂到 Release。
+# 不用在自己电脑上跑 PyInstaller 了，但要等 10 分钟左右。
+#
+# 流程：
+#   1. 装 Python 3.12 + 依赖
+#   2. 下模型（下载模型.py）
+#   3. PyInstaller 打包
+#   4. ui/ 拷到 dist/ 旁边
+#   5. 压 zip 传到 Release
+#
+# 注意：ui/API.txt 在仓库里本来就没有（.gitignore 排除了），
+# 所以拷过去之后一定要再确认一遍没有钥匙。
+
+name: build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: 下模型
+        run: python 下载模型.py
+
+      - name: 打包
+        run: python -m PyInstaller 打包.spec --noconfirm
+
+      - name: 把 ui 拷到 exe 旁边
+        run: |
+          xcopy /E /I /Y ui "dist\小笨蛋\ui"
+          del /Q "dist\小笨蛋\ui\API.txt" 2>nul
+          del /Q "dist\小笨蛋\ui\存档.json" 2>nul
+          del /Q "dist\小笨蛋\ui\记忆_重要的事.json" 2>nul
+          copy 使用说明.txt "dist\小笨蛋\"
+
+      - name: 压 zip
+        run: |
+          cd dist
+          powershell -Command "Compress-Archive -Path '小笨蛋\*' -DestinationPath '..\小笨蛋-win64.zip'"
+
+      - name: 传 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: 小笨蛋-win64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
