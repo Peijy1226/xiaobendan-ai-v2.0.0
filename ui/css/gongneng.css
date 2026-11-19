@@ -1,0 +1,1051 @@
+/* ============================================================================
+   功能页 —— 13 项浮层（雾化玻璃版）
+
+   【这一版和上一版的差别】
+   上一版是"半透明深色板 + 模糊"，看着像磨砂塑料，不是玻璃：
+     · rgba(26,32,41,.62) —— 62% 的暗底把背后画面压死了
+     · blur(22px) —— 对 760×520 的面板来说不够，纹理糊成一团灰
+     · 没有边缘光 —— 玻璃是有厚度的，上下边缘会反光
+   这一版按真玻璃的四层来堆：
+     ① 底色很淡（.38），让壁纸的树影透出来
+     ② blur 大（44px）+ saturate 提（1.55）—— 颜色被"抽"出来，才有玻璃的透亮感
+     ③ brightness 0.9 —— 壁纸偏亮（面板区平均 103），压一点文字才清楚
+     ④ 上加内高光、外圈细亮边、下加深阴影 —— 厚度感和浮起感
+   实测壁纸面板区 RGB(121,112,76)、亮度 103，所以压亮不压暗是对的。
+   ========================================================================== */
+
+/* ---------------- 遮罩：只压一点点，不要太黑 ---------------- */
+#gong-neng {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: none;
+  /* 原来 0.42 太黑，整个背景都看不见了。0.22 刚好把注意力收到面板上 */
+  background: rgba(6, 9, 13, 0.22);
+}
+
+#gong-neng.kai {
+  display: block;
+  animation: gn-fade 180ms ease;
+}
+
+@keyframes gn-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ============================================================================
+   面板本体
+   ========================================================================== */
+#gn-mian-ban {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 780px;
+  max-width: calc(100vw - 56px);
+  height: 536px;
+  max-height: calc(100vh - 116px);
+  transform: translate(-50%, -50%);
+  display: flex;
+  border-radius: 20px;
+  overflow: hidden;
+
+  /* ---- ① 底色：很淡，让壁纸透出来 ---- */
+  /* 【实测选出来的】四组参数截图比对：
+        A blur44/bri0.90/α0.38  → 面板亮度 61，和面板外只差 12（灰板）
+        B blur40/bri1.06/α0.24  → 72，差 23
+        C blur36/bri1.12/α0.16  → 75，差 26  ← 透得出来
+        D blur56/bri1.02/α0.22  → 72，差 22
+     壁纸面板区亮度 103、标准差 43（有明暗层次），这种底子要**提亮+提饱和**
+     才有玻璃的透亮感；压暗只会压成一块灰。
+     C 的对比度最好，但 blur 36 对 780px 宽的面板略小、还能看出轮廓，
+     所以取 B 的模糊度和 C 的亮度 —— 落在下面的值。 */
+  background:
+    linear-gradient(
+      155deg,
+      rgba(255, 255, 255, 0.075) 0%,
+      rgba(255, 255, 255, 0.018) 42%,
+      rgba(0, 0, 0, 0.045) 100%
+    ),
+    rgba(22, 29, 38, var(--boli-di, 0.26));
+
+  /* ---- ② 雾化：提亮 + 提饱和，颜色才"抽"得出来 ----
+     【为什么改成变量】这三个值现在是可调的（个性化页有滑块）。
+     硬编码的话每改一次都要重写整条 backdrop-filter，
+     改变量只动一个数字，也不会因为拼错前缀丢掉 -webkit-。 */
+  backdrop-filter: blur(var(--boli-mo, 22px))
+                  saturate(var(--boli-bao, 1.75))
+                  brightness(var(--boli-liang, 1.12))
+                  contrast(1.06);
+  -webkit-backdrop-filter: blur(var(--boli-mo, 22px))
+                           saturate(var(--boli-bao, 1.75))
+                           brightness(var(--boli-liang, 1.12))
+                           contrast(1.06);
+
+  /* ---- ③ 厚度：外圈细亮边 + 上方内高光 + 下方投影 ---- */
+  border: 1px solid rgba(255, 255, 255, 0.135);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.48),
+    0 4px 16px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    inset 1px 0 0 rgba(255, 255, 255, 0.06);
+
+  animation: gn-in 220ms cubic-bezier(.16, .84, .32, 1);
+}
+
+/* 面板外面再套一层极淡的光晕，让边缘不那么"切" */
+#gn-mian-ban::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 21px;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 80% at 50% -10%,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(255, 255, 255, 0) 55%
+  );
+}
+
+@keyframes gn-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.965); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* ============================================================================
+   左侧 13 项
+   ========================================================================== */
+#gn-cai-dan {
+  flex: 0 0 182px;
+  padding: 16px 11px;
+  overflow-y: auto;
+  /* 侧栏比内容区再深一点点 —— 玻璃有好几层，不该是同一块板的颜色 */
+  /* 侧栏比内容区深一点点 —— 玻璃有多层，不该是同一块板的颜色。
+     但也不能太深：实测 0.30 会把左侧壁纸完全压死，透亮感就没了。 */
+  background: linear-gradient(
+    180deg,
+    rgba(8, 12, 18, 0.20) 0%,
+    rgba(8, 12, 18, 0.12) 100%
+  );
+  border-right: 1px solid rgba(255, 255, 255, 0.075);
+  position: relative;
+  z-index: 1;
+}
+
+/* 滚动条：细、浅、悬停才明显 —— 平时几乎看不见 */
+#gn-cai-dan::-webkit-scrollbar { width: 4px; }
+#gn-cai-dan::-webkit-scrollbar-track { background: transparent; }
+#gn-cai-dan::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 2px;
+}
+#gn-cai-dan:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.20);
+}
+
+/* ---- 菜单项 ---- */
+.gn-xiang {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 11px;
+  margin-bottom: 2px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  letter-spacing: 0.2px;
+  color: rgba(226, 235, 245, 0.72);
+  cursor: pointer;
+  position: relative;
+  transition: background 140ms ease, color 140ms ease;
+  white-space: nowrap;
+}
+
+.gn-xiang:hover {
+  background: rgba(255, 255, 255, 0.055);
+  color: rgba(240, 246, 253, 0.95);
+}
+
+/* 选中：玻璃胶囊。不是纯色块 —— 要有内高光、外发光、左边一道亮线 */
+.gn-xiang.on {
+  color: #eaf4ff;
+  background: linear-gradient(
+    100deg,
+    rgba(127, 196, 255, 0.19) 0%,
+    rgba(127, 196, 255, 0.09) 60%,
+    rgba(127, 196, 255, 0.05) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
+    0 2px 10px rgba(80, 150, 230, 0.13);
+}
+
+/* 左边那道亮线 */
+.gn-xiang.on::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.5px;
+  height: 15px;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    rgba(150, 210, 255, 0.95) 0%,
+    rgba(110, 180, 250, 0.55) 100%
+  );
+  box-shadow: 0 0 7px rgba(127, 196, 255, 0.72);
+}
+
+/* ---- 图标 ---- */
+.gn-tu {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.72;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.gn-tu svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+  overflow: visible;
+}
+
+/* 描边图标：fill 全透明，只有 stroke */
+.gn-tu svg path,
+.gn-tu svg circle,
+.gn-tu svg rect,
+.gn-tu svg line,
+.gn-tu svg polyline,
+.gn-tu svg polygon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.55;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gn-tu svg .dian {
+  fill: currentColor;
+  stroke: none;
+}
+
+.gn-xiang:hover .gn-tu { opacity: 0.9; }
+
+.gn-xiang.on .gn-tu {
+  opacity: 1;
+  transform: scale(1.03);
+}
+
+/* ============================================================================
+   右侧内容
+   ========================================================================== */
+#gn-nei {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- 标题栏 ---- */
+#gn-tou {
+  flex: 0 0 auto;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  padding: 0 22px;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.035) 0%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+#gn-biao {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: #eef5fd;
+  /* 深色玻璃上的标题要一点点发光，才显得"压在玻璃上" */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.42);
+}
+
+#gn-fu {
+  font-size: 12px;
+  color: rgba(180, 196, 213, 0.60);
+  margin-top: 2px;
+}
+
+#gn-guan {
+  margin-left: auto;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  color: rgba(200, 214, 228, 0.62);
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+#gn-guan:hover {
+  background: rgba(255, 96, 96, 0.20);
+  color: #ffc2c2;
+  transform: rotate(90deg);
+}
+
+/* ---- 内容区 ---- */
+#gn-ye {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 20px 22px 24px;
+  scroll-behavior: smooth;
+}
+
+#gn-ye::-webkit-scrollbar { width: 5px; }
+#gn-ye::-webkit-scrollbar-track { background: transparent; }
+#gn-ye::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 3px;
+}
+#gn-ye:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.20);
+}
+
+/* ============================================================================
+   通用控件
+   ============================================================================ */
+.gn-hang {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 13px;
+  flex-wrap: wrap;
+}
+
+.gn-pian {
+  font-size: 13px;
+  color: rgba(180, 196, 213, 0.66);
+  min-width: 58px;
+}
+
+/* ---- 输入框：玻璃薄片 ---- */
+.gn-in {
+  flex: 1 1 160px;
+  height: 35px;
+  padding: 0 13px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: #eaf2fb;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.105);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16);
+  outline: none;
+  transition: border-color 150ms ease, background 150ms ease,
+              box-shadow 150ms ease;
+}
+
+.gn-in:focus {
+  border-color: rgba(127, 196, 255, 0.55);
+  background: rgba(255, 255, 255, 0.085);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.12),
+    0 0 0 3px rgba(127, 196, 255, 0.11);
+}
+
+.gn-in::placeholder { color: rgba(170, 188, 206, 0.44); }
+
+/* ---- 主按钮 ---- */
+.gn-an {
+  height: 35px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  letter-spacing: 0.2px;
+  color: #eaf4ff;
+  background: linear-gradient(
+    180deg,
+    rgba(127, 196, 255, 0.24) 0%,
+    rgba(110, 175, 240, 0.16) 100%
+  );
+  border: 1px solid rgba(127, 196, 255, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 8px rgba(60, 130, 210, 0.16);
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.gn-an:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(137, 204, 255, 0.34) 0%,
+    rgba(120, 185, 250, 0.24) 100%
+  );
+  border-color: rgba(157, 212, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 3px 14px rgba(60, 140, 220, 0.28);
+}
+
+.gn-an:active {
+  transform: translateY(0.5px);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
+.gn-an:disabled {
+  opacity: 0.36;
+  cursor: default;
+  box-shadow: none;
+}
+
+/* ---- 次要按钮 ---- */
+.gn-an.ci {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.115);
+  color: rgba(206, 220, 234, 0.80);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.gn-an.ci:hover {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.20);
+  color: #eaf2fb;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.13);
+}
+
+/* ---- 危险按钮 ---- */
+.gn-an.xian {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 92, 92, 0.22) 0%,
+    rgba(230, 70, 70, 0.15) 100%
+  );
+  border-color: rgba(255, 110, 110, 0.34);
+  color: #ffc4c4;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 2px 8px rgba(200, 50, 50, 0.14);
+}
+
+.gn-an.xian:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 102, 102, 0.32) 0%,
+    rgba(240, 80, 80, 0.24) 100%
+  );
+  border-color: rgba(255, 130, 130, 0.58);
+}
+
+/* ---- 分段选择：一条玻璃槽 + 一块滑动的亮片 ---- */
+.gn-duan {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(10, 15, 22, 0.30);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.20);
+}
+
+.gn-duan button {
+  height: 27px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: rgba(184, 200, 216, 0.72);
+  transition: all 140ms ease;
+}
+
+.gn-duan button:hover { color: #e4eefa; }
+
+.gn-duan button.on {
+  color: #eaf5ff;
+  background: linear-gradient(
+    180deg,
+    rgba(127, 196, 255, 0.30) 0%,
+    rgba(110, 175, 240, 0.19) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 1px 5px rgba(70, 140, 220, 0.22);
+}
+
+/* ============================================================================
+   文字
+   ============================================================================ */
+.gn-shuo {
+  font-size: 12.8px;
+  line-height: 1.82;
+  color: rgba(196, 210, 226, 0.78);
+  margin-bottom: 15px;
+  letter-spacing: 0.15px;
+  /* 【必须有】帮助 / 关于那几页用 "\n\n" 分段，
+     不写 pre-wrap 会全糊成一大段（实测就是这样，看着像没排版）。 */
+  white-space: pre-wrap;
+}
+
+.gn-shuo b {
+  color: #edf5ff;
+  font-weight: 600;
+}
+
+.gn-shuo code {
+  padding: 1.5px 6px;
+  border-radius: 5px;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 11.8px;
+  background: rgba(255, 255, 255, 0.082);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #ffd88a;
+}
+
+/* ============================================================================
+   结果框
+   ============================================================================ */
+.gn-jie {
+  margin-top: 15px;
+  padding: 13px 15px;
+  border-radius: 11px;
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: #e8f1fa;
+  background: rgba(255, 255, 255, 0.042);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 268px;
+  overflow-y: auto;
+}
+
+.gn-jie:empty { display: none; }
+
+.gn-jie::-webkit-scrollbar { width: 5px; }
+.gn-jie::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+
+.gn-jie .cuo { color: #ffb8b8; }
+.gn-jie .ruo { color: rgba(180, 196, 213, 0.62); }
+
+/* ============================================================================
+   识图预览
+   ============================================================================ */
+#gn-yu-lan {
+  margin-top: 14px;
+  border-radius: 11px;
+  overflow: hidden;
+  display: none;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+#gn-yu-lan.kai { display: block; }
+
+#gn-yu-lan img {
+  display: block;
+  width: 100%;
+  max-height: 246px;
+  object-fit: contain;
+}
+
+.gn-kuang {
+  position: absolute;
+  border: 1.8px solid rgba(127, 196, 255, 0.92);
+  border-radius: 4px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.32), 0 0 8px rgba(127, 196, 255, 0.34);
+}
+
+.gn-kuang.ren {
+  border-color: rgba(255, 209, 102, 0.95);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.32), 0 0 8px rgba(255, 209, 102, 0.34);
+}
+
+.gn-kuang span {
+  position: absolute;
+  left: -2px;
+  top: -21px;
+  padding: 1.5px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+/* ============================================================================
+   打赏
+   ============================================================================ */
+#gn-dang {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.gn-dang {
+  padding: 12px 7px;
+  border-radius: 11px;
+  text-align: center;
+  cursor: pointer;
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.062) 0%,
+    rgba(255, 255, 255, 0.022) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.075);
+  transition: all 160ms cubic-bezier(.2, .8, .3, 1);
+}
+
+.gn-dang:hover {
+  background: linear-gradient(
+    160deg,
+    rgba(255, 209, 102, 0.17) 0%,
+    rgba(255, 190, 90, 0.07) 100%
+  );
+  border-color: rgba(255, 209, 102, 0.38);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 4px 16px rgba(200, 150, 40, 0.20);
+  transform: translateY(-2px);
+}
+
+.gn-dang .jia {
+  display: block;
+  font-size: 14px;
+  color: #ffd77a;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.gn-dang .fu {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(184, 200, 216, 0.60);
+}
+
+/* ============================================================================
+   字体大小
+   ============================================================================ */
+#gn-ziti-hua {
+  flex: 1 1 240px;
+  height: 26px;
+  accent-color: #7fc4ff;
+  cursor: pointer;
+}
+
+.gn-ziti-shi {
+  padding: 11px 15px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #eaf2fb;
+  font-size: 15px;
+  line-height: 20px;
+}
+
+/* ============================================================================
+   壁纸
+   ============================================================================ */
+#gn-bizhi {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 11px;
+  margin-bottom: 15px;
+}
+
+.gn-bz {
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  transition: all 160ms ease;
+}
+
+.gn-bz:hover {
+  border-color: rgba(127, 196, 255, 0.50);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+}
+
+.gn-bz.on {
+  border-color: rgba(127, 196, 255, 0.88);
+  box-shadow:
+    0 0 0 2px rgba(127, 196, 255, 0.22),
+    0 4px 16px rgba(60, 130, 210, 0.26);
+}
+
+.gn-bz img,
+.gn-bz video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gn-bz .tik {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 7px;
+  font-size: 11px;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.76));
+}
+
+/* ============================================================================
+   记忆
+   ============================================================================ */
+.gn-jiyi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.gn-jy {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.75;
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(255, 255, 255, 0.068);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.gn-jy .biao {
+  flex: 0 0 56px;
+  color: #ffd77a;
+  font-weight: 500;
+}
+
+.gn-jy .zhi {
+  color: #e4eefa;
+  word-break: break-all;
+}
+
+/* ============================================================================
+   空态 / 加载
+   ============================================================================ */
+.gn-kong {
+  padding: 30px 0;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(170, 188, 206, 0.48);
+  letter-spacing: 0.2px;
+}
+
+.gn-mang {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  vertical-align: -2px;
+  border: 2px solid rgba(127, 196, 255, 0.24);
+  border-top-color: rgba(127, 196, 255, 0.92);
+  border-radius: 50%;
+  animation: gn-zhuan 720ms linear infinite;
+}
+
+@keyframes gn-zhuan {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   ⑧ 个性化：气泡预览 + 双头像
+   ========================================================================== */
+
+/* ---- 三个气泡样式预览块 ---- */
+#gn-yang-shi {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 11px;
+  margin-bottom: 6px;
+}
+
+.gn-yang {
+  padding: 12px 10px 9px;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: center;
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.055) 0%,
+    rgba(255, 255, 255, 0.018) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: all 160ms cubic-bezier(.2, .8, .3, 1);
+}
+
+.gn-yang:hover {
+  border-color: rgba(127, 196, 255, 0.42);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.11),
+    0 5px 18px rgba(0, 0, 0, 0.26);
+}
+
+.gn-yang.on {
+  border-color: rgba(127, 196, 255, 0.85);
+  background: linear-gradient(
+    160deg,
+    rgba(127, 196, 255, 0.14) 0%,
+    rgba(127, 196, 255, 0.04) 100%
+  );
+  box-shadow:
+    0 0 0 2px rgba(127, 196, 255, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 4px 16px rgba(60, 130, 210, 0.20);
+}
+
+.gn-yang-ming {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(196, 210, 226, 0.70);
+}
+
+.gn-yang.on .gn-yang-ming {
+  color: #b6ddff;
+}
+
+/* 预览舞台：小头像 + 小气泡 */
+.gn-yu {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  height: 46px;
+  padding: 4px 2px 0;
+}
+
+.gn-yu-tou {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #e8eef6 0%, #c6d0dc 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.gn-yu-pao {
+  flex: 1 1 auto;
+  height: 26px;
+  position: relative;
+  border-radius: 0;
+}
+
+/* 猫耳预览：圆身 + 两只小三角 */
+.gn-yu.mao .gn-yu-pao {
+  margin-top: 7px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #e3e7eb 0%, #cdd1d5 100%);
+  border: 1.2px solid rgba(182, 190, 200, 0.7);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.24);
+}
+
+.gn-yu.mao .gn-yu-pao::before,
+.gn-yu.mao .gn-yu-pao::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  width: 11px;
+  height: 8px;
+  background: linear-gradient(180deg, #e6eaee 0%, #d2d6da 100%);
+  border: 1.2px solid rgba(182, 190, 200, 0.7);
+  border-bottom: none;
+}
+
+.gn-yu.mao .gn-yu-pao::before {
+  left: 8px;
+  border-radius: 6px 6px 0 0;
+  transform: rotate(-12deg);
+}
+
+.gn-yu.mao .gn-yu-pao::after {
+  right: 8px;
+  border-radius: 6px 6px 0 0;
+  transform: rotate(12deg);
+}
+
+/* 圆角预览 */
+.gn-yu.yuan .gn-yu-pao {
+  border-radius: 9px;
+  background: linear-gradient(180deg, #e1e5ea 0%, #d4d8dc 100%);
+  border: 1.2px solid rgba(107, 118, 130, 0.42);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.24);
+}
+
+/* 透光预览：半透明 + 描边，模拟玻璃 */
+.gn-yu.tou .gn-yu-pao {
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1.2px solid rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 4px rgba(0, 0, 0, 0.16);
+}
+
+/* ---- 双头像卡 ---- */
+#gn-tou-xiang {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.gn-tou-ka {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.038);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.gn-tou-yuan {
+  flex: 0 0 58px;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(160deg, #e8eef6 0%, #c6d0dc 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.22);
+}
+
+.gn-tou-yuan img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gn-tou-yuan span {
+  font-size: 17px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.gn-tou-you {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gn-tou-biao {
+  font-size: 13.5px;
+  color: #eaf2fb;
+  margin-bottom: 3px;
+}
+
+.gn-tou-zhu {
+  font-size: 11.5px;
+  color: rgba(180, 196, 213, 0.55);
+  margin-bottom: 8px;
+}
+
+.gn-tou-niu {
+  display: flex;
+  gap: 8px;
+}
+
+.gn-tou-niu .gn-an {
+  height: 29px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
+
+/* ============================================================================
+   ⑧b 功能页通透度滑块
+   ========================================================================== */
+.gn-boli {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 16px;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.gn-hua-hang {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.gn-hua-ming {
+  flex: 0 0 62px;
+  font-size: 12.5px;
+  color: rgba(196, 210, 226, 0.72);
+}
+
+.gn-hua {
+  flex: 1 1 auto;
+  height: 22px;
+  accent-color: #7fc4ff;
+  cursor: pointer;
+  background: transparent;
+}
+
+.gn-hua-zhi {
+  flex: 0 0 56px;
+  text-align: right;
+  font-size: 12px;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  color: rgba(180, 210, 240, 0.86);
+}
+
+.gn-hua-niu {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.gn-hua-niu .gn-an {
+  height: 30px;
+  padding: 0 13px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
