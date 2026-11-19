@@ -26,6 +26,11 @@ vosk>=0.3.45
 pystray>=0.19
 six
 
+# ---- vosk 的隐性依赖（它 import 了但只用一小部分）----
+srt
+requests
+tqdm
+
 # ---- 整理助手 ----
 pyclipper
 shapely

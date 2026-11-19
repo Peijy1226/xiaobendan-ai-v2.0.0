@@ -56,16 +56,26 @@ python 下载模型.py
 python main.py
 ```
 
-**第一次跑会缺 vendor 里的三个库**（pystray / sounddevice / vosk）。
-它们不在 `requirements.txt` 的默认路径下，要手动装到 `vendor/`：
+### 关于 vendor/ 目录
+
+开发时我把 pystray / sounddevice / vosk 装在了 `vendor/`（不进仓库），
+为了让系统的 site-packages 保持干净。这个目录**不是必须的** ——
+代码会在 `vendor/` 和系统 site-packages 两个地方找。
+
+从源码跑的话，两种做法选一个：
 
 ```bash
-pip install --target vendor pystray sounddevice vosk srt
+# 做法 A：装到系统（简单）
+pip install -r requirements.txt
+pip install pystray sounddevice vosk srt requests tqdm
+
+# 做法 B：装到 vendor（和我的开发环境一致）
+pip install -r requirements.txt
+pip install --target vendor pystray sounddevice vosk srt requests tqdm
 ```
 
-> 为什么这几个单独放 `vendor/`：想让系统的 site-packages 保持干净。
-> 不想这么做的话，直接 `pip install pystray sounddevice vosk srt` 也一样，
-> 代码会自动在两个位置找。
+> vosk 会 import `srt` / `requests` / `tqdm`，虽然它只用其中一小部分功能，
+> 但缺了就直接 ImportError，所以一起装上。
 
 ---
 
