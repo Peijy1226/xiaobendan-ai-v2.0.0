@@ -2,8 +2,8 @@
 
 **[English](README_EN.md)** · 中文
 
-[![release](https://img.shields.io/github/v/release/Peijy1226/xiaobendan?cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendan/releases)
-[![license](https://img.shields.io/github/license/Peijy1226/xiaobendan)](LICENSE)
+[![release](https://img.shields.io/github/v/release/Peijy1226/xiaobendanV2.0.0?cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendanV2.0.0/releases)
+[![license](https://img.shields.io/github/license/Peijy1226/xiaobendanV2.0.0)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4)](#)
 
 一个住在电脑里的桌面角色。关掉窗口她还在托盘里待着，过一阵子自己会来找你说句话。
@@ -12,7 +12,7 @@
 
 ## 装
 
-[Releases](https://github.com/Peijy1226/xiaobendan/releases) 里一个 zip，解压双击 `小笨蛋.exe`。不用装 Python，不用装运行库。
+[Releases](https://github.com/Peijy1226/xiaobendanV2.0.0/releases) 里一个 zip，解压双击 `小笨蛋.exe`。不用装 Python，不用装运行库。
 
 第一次打开她会问你叫什么。之后她记着。
 

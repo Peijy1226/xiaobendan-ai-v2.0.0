@@ -2,8 +2,8 @@
 
 **English** · [中文](README.md)
 
-[![release](https://img.shields.io/github/v/release/Peijy1226/xiaobendan?cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendan/releases)
-[![license](https://img.shields.io/github/license/Peijy1226/xiaobendan)](LICENSE)
+[![release](https://img.shields.io/github/v/release/Peijy1226/xiaobendanV2.0.0?cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendanV2.0.0/releases)
+[![license](https://img.shields.io/github/license/Peijy1226/xiaobendanV2.0.0)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4)](#)
 
 A character who lives on your computer. Close the window and she stays in the system tray. Leave her alone long enough and she'll come find you.
@@ -12,7 +12,7 @@ A character who lives on your computer. Close the window and she stays in the sy
 
 ## Install
 
-One zip in [Releases](https://github.com/Peijy1226/xiaobendan/releases). Unzip, double-click `小笨蛋.exe`. No Python, no runtime needed.
+One zip in [Releases](https://github.com/Peijy1226/xiaobendanV2.0.0/releases). Unzip, double-click `小笨蛋.exe`. No Python, no runtime needed.
 
 First launch she asks your name. She remembers it after that.
 
