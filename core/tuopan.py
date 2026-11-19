@@ -33,6 +33,7 @@ class TuoPan:
         self._icon = None
         self._xian_shi = True
         self.zhen_tui = None      # main.py 会塞一个"放行关闭"的回调进来
+        self._ting_zhi = False    # 巡检线程的停止旗
 
     # ---------------- 图标 ----------------
     def _zuo_tu(self):
@@ -165,8 +166,46 @@ class TuoPan:
             return False
 
     def ting(self):
+        self._ting_zhi = True
         try:
             if self._icon:
                 self._icon.stop()
         except Exception:
             pass
+
+    # ---------------- 图标失效自愈 ----------------
+    # 【为什么会失效】托盘图标是向 explorer.exe 注册的。
+    # explorer 重启（或崩溃重开）之后，注册就没了 —— 图标从任务栏消失，
+    # 但程序还在跑，用户点不到任何菜单。
+    # pystray 会监听 TaskbarCreated 消息尝试重新注册，但不总成功。
+    # 所以这里加一个后台巡检：每 30 秒看一眼图标窗口还在不在，
+    # 不在就停掉重建一个。
+    def kan_hu(self, jian_ge=30.0):
+        """起一个后台线程，定期检查托盘图标是否还活着"""
+        import threading as _t
+
+        def _xun():
+            import time as _ti
+            while not getattr(self, "_ting_zhi", False):
+                _ti.sleep(jian_ge)
+                try:
+                    if self._icon is None:
+                        break
+                    # pystray 的 _hwnd 是内部属性，没有就说明没起来
+                    if not getattr(self._icon, "_hwnd", None):
+                        print("[托盘] 图标句柄丢了，重建")
+                        self._chong_jian()
+                except Exception as e:
+                    print("[托盘] 巡检出错（忽略）：%s" % e)
+
+        _t.Thread(target=_xun, daemon=True).start()
+
+    def _chong_jian(self):
+        """停掉旧图标、重建一个"""
+        try:
+            if self._icon:
+                self._icon.stop()
+        except Exception:
+            pass
+        self._icon = None
+        self.qi_dong()

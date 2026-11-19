@@ -488,6 +488,52 @@ class Qiao:
             print("[api] 最小化失败 %s" % e)
         return True
 
+    def zhen_tui_chu(self):
+        """界面里点「彻底退出」走这里。
+
+        【为什么需要这个】托盘图标在重启 explorer（或者装/卸某些软件后
+        explorer 崩溃重开）时会失效 —— 图标从托盘消失，但进程还在。
+        用户这时既看不到窗口（藏起来了）、也点不到托盘菜单，
+        只能用任务管理器 —— 这是设计缺陷。
+
+        所以必须留一条不依赖托盘的退出路：界面里一个按钮。
+        """
+        import threading as _t
+        import time as _ti
+
+        def _pao():
+            # ① 放行 closing（不置这个开关会被"关闭=藏托盘"拦住）
+            try:
+                if callable(getattr(self, "_zhen_tui", None)):
+                    self._zhen_tui()
+            except Exception:
+                pass
+            # ② 存档（和 guan_bi 同一套）
+            try:
+                luoji.xie_cundang(self._hui, self._qingxu.haogan,
+                                  self._qingxu.lunshu, self._qingxu.dangqian)
+            except Exception:
+                pass
+            # ③ 停托盘（停不掉也无所谓，下面会硬退）
+            try:
+                if callable(getattr(self, "_ting_tuo", None)):
+                    self._ting_tuo()
+            except Exception:
+                pass
+            # ④ 关窗口
+            try:
+                if self._chuang is not None:
+                    self._chuang.destroy()
+            except Exception:
+                pass
+            # ⑤ 1.5 秒后硬退 —— 不能因为某个 daemon 线程不听话就卡住
+            _ti.sleep(1.5)
+            import os as _os
+            _os._exit(0)
+
+        _t.Thread(target=_pao, daemon=True).start()
+        return {"ok": True}
+
     def guan_bi(self):
         """关闭：先存档，再销毁（旧版 _guan_bi 也是这个顺序）"""
         try:
@@ -1116,7 +1162,7 @@ class Qiao:
     # ---------- 七·一 · 功能页玻璃参数（可调） ----------
     # 存成 ui/个性化/玻璃.txt，一行一个值：模糊|饱和|亮度|底色透明度
     # 【默认值为什么从 42px 降到 22px】
-    # 42px 是第七阶段按"面板内亮度和面板外的差值"选出来的 ——
+    # 42px 是早期按"面板内亮度和面板外的差值"选出来的 ——
     # 那个指标只衡量"透不透"，没衡量"糊不糊"。
     # 用户第一句反馈就是"模糊程度还是太高了"。
     # 重新量了五档（帮助页文字做靶）：

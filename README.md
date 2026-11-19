@@ -115,7 +115,7 @@ pip install --target vendor pystray sounddevice vosk srt requests tqdm
 
 ```
 ├── main.py               入口（窗口 / 圆角 / 托盘 / 主动消息）
-├── api.py                前后端桥，52 个方法
+├── api.py                前后端桥，53 个方法
 ├── core/
 │   ├── luoji.py          逻辑层（对话、情绪、记忆、壁纸）
 │   ├── shitu.py          识图（OCR + 人脸 + 物体）
@@ -202,6 +202,16 @@ pip install --target vendor pystray sounddevice vosk srt requests tqdm
 才允许把关闭改成隐藏。托盘起不来就保持"关闭 = 真退出"——
 否则用户点 ✕ 之后窗口永远找不回来。
 
+**托盘图标会失效，所以留了第二条退出路**。托盘图标是向 `explorer.exe`
+注册的，explorer 重启（或者装/卸软件时崩了重开）之后注册就没了 ——
+图标从任务栏消失，但进程还活着。这时关窗口只会藏起来，托盘又点不到，
+用户只能开任务管理器。
+
+三重保险：
+1. 后台巡检每 30 秒看一眼图标句柄，丢了就重建
+2. 「功能 → 关于」底部有「彻底退出小笨蛋」按钮，不依赖托盘
+3. 退出流程里带 1.5 秒兜底，`os._exit(0)` 强退，不会被某个后台线程卡住
+
 **Vosk 读不了中文路径**。它的 C 库在 Windows 上用 ANSI 接口拼路径，
 `E:/.../小笨蛋/...` 这样的目录直接 `Failed to create a model`。
 短路径、目录联接都试过无效，最后是复制到 `%TEMP%\xbd_vosk_stt` 解决。
@@ -210,10 +220,13 @@ pip install --target vendor pystray sounddevice vosk srt requests tqdm
 
 ## 已知问题
 
-- 天气接口（open-meteo）在某些网络下连不上
-- 语音识别对带口音的普通话准确率一般（Vosk 小模型的极限）
-- 没有单实例保护，开两个会抢 `ui/存档.json`
-- 没有代码签名，第一次运行 SmartScreen 会拦一下
+| 问题 | 影响 | 有没有解 |
+|---|---|---|
+| 天气接口连不上 | 「今天天气怎么样」会答不上来 | open-meteo 在某些网络被拦，换网络可以 |
+| 语音识别准确率一般 | 带口音的普通话会听错 | Vosk 小模型的极限，换大模型要多 500 MB |
+| 没有单实例保护 | 开两个会抢 `ui/存档.json` | 加个命名互斥体就能解决，还没做 |
+| 没有代码签名 | 第一次运行 SmartScreen 会拦 | 要买证书 |
+| 托盘图标可能失效 | explorer 重启后图标消失 | 已加巡检自愈 + 界面退出按钮兜底 |
 
 ---
 

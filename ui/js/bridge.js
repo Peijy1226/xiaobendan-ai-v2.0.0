@@ -182,6 +182,10 @@
     删头像: function (shui) { return 调用('shan_tou', [shui], function () {
       return { ok: true }; }); },
 
+    /* ---- 彻底退出（不依赖托盘） ---- */
+    彻底退出: function () { return 调用('zhen_tui_chu', [], function () {
+      return { ok: false }; }); },
+
     /* ---- 功能页玻璃（可调模糊） ---- */
     读玻璃: function () { return 调用('du_bo_li', [],
       function () { return { mo: 22, bao: 175, liang: 112, di: 26 }; }); },

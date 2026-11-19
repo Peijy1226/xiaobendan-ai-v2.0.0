@@ -1003,7 +1003,7 @@
     /* 先摆骨架再异步填 —— 第一版直接等 Promise，点开有半秒空白，
        验收脚本在 0.32 秒时看到的就是空的。骨架还能当"正在读环境"的提示。 */
     var 框 = 说明(
-      '<b>小笨蛋</b>　产品版 · 第七阶段<br>' +
+      '<b>小笨蛋</b>　产品版<br>' +
       '壳：HTML + CSS + WebView2（无边框自绘）<br>' +
       '逻辑：旧版 21,255 行里抽出来的 7,637 行<br>' +
       '壁纸：视频 1280×720 / 30fps<br><br>' +
@@ -1014,7 +1014,7 @@
       r = r || {};
       框.remove();
       父.appendChild(说明(
-        '<b>小笨蛋</b>　产品版 · 第七阶段<br>' +
+        '<b>小笨蛋</b>　产品版<br>' +
         '壳：HTML + CSS + WebView2（无边框自绘）<br>' +
         '逻辑：旧版 21,255 行里抽出来的 7,637 行<br>' +
         '壁纸：视频 1280×720 / 30fps<br><br>' +
@@ -1050,6 +1050,36 @@
         });
         自检框.appendChild(列);
       });
+
+      /* ---------- 退出 ---------- */
+      /* 【为什么这里必须有个退出按钮】
+         托盘图标在 explorer 重启后会失效（图标从任务栏消失），
+         但进程还活着。这时候关窗口只会藏起来，托盘又点不到 ——
+         用户只能开任务管理器，这是设计缺陷。
+         所以留一条不依赖托盘的退出路。 */
+      var 退框 = 造('div');
+      退框.style.marginTop = '20px';
+      退框.appendChild(造('div', 'gn-pian', '退出'));
+      退框.appendChild(说明(
+        '托盘图标如果不见了（右下角找不到 ⚪），' +
+        '点下面的按钮可以直接结束程序。'));
+      var 退行 = 造('div', 'gn-hua-niu');
+      退行.style.borderTop = 'none';
+      退行.appendChild(按钮('彻底退出小笨蛋', function () {
+        /* 二次确认 —— 误点就把她关了，回来得重新开 */
+        if (!window.confirm('要关掉小笨蛋吗？\n\n她会先存好你们的对话，' +
+                            '下次打开接着聊。')) return;
+        Qiao.彻底退出();
+        /* 界面会给 1.5 秒后硬退，这里先把按钮置灰免得连点 */
+        setTimeout(function () {
+          document.body.innerHTML =
+            '<div style="height:100vh;display:flex;align-items:center;' +
+            'justify-content:center;color:#8fa4bb;font:14px system-ui">' +
+            '（她收拾东西去了……）</div>';
+        }, 120);
+      }, 'ci'));
+      退框.appendChild(退行);
+      父.appendChild(退框);
     });
   };
 

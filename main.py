@@ -233,6 +233,23 @@ def main():
             chuang.events.closing += _guan
             # 把开关交给托盘，它退出前置一下
             _tp.zhen_tui = lambda: _zheng_tui.__setitem__("zai", True)
+
+            # 【图标自愈】托盘图标是向 explorer 注册的，explorer 重启后
+            # 注册就没了 —— 图标消失、进程还在、点不到菜单。
+            # 起个后台巡检，图标丢了自动重建。
+            try:
+                _tp.kan_hu()
+            except Exception as e:
+                print("[main] 托盘巡检没起来（不影响使用）：%s" % e)
+
+            # 【界面里的「彻底退出」也要用这套】
+            # 托盘图标在 explorer 重启后会失效（图标消失但进程还在），
+            # 那时用户点不到托盘菜单，必须有第二条退出路。
+            try:
+                qiao._zhen_tui = lambda: _zheng_tui.__setitem__("zai", True)
+                qiao._ting_tuo = _tp.ting
+            except Exception:
+                pass
             print("[main] 关闭 = 藏到托盘已启用（托盘退出会放行）")
 
             # ---- 主动消息 ----
