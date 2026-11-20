@@ -16,7 +16,7 @@ One zip in [Releases](https://github.com/Peijy1226/xiaobendanV2.0.0/releases). U
 
 First launch she asks your name. She remembers it after that.
 
-Works without an API key — 515 canned lines cover time, arithmetic, jokes, OCR, and file sorting. Add a DeepSeek key and she actually talks. Costs pennies for thousands of messages.
+![First launch](docs/screenshot-intro.jpg)
 
 ## Why this exists
 
@@ -24,13 +24,17 @@ I wanted a character who lives on the computer. Not an assistant, not a toolbox.
 
 Every chat app I tried felt like a tool — ask, answer, forget. I wanted: you mention you're working late, and the next day she asks how late you slept.
 
-So memory got the most work; everything else grew around it. Two layers: rules extract synchronously (name, pets, likes, job, city — 10ms), anything missed goes to the model in the background (1.2s). If the rules got it, the model isn't called — otherwise every message costs an extra cent and a second.
+So memory got the most work; everything else grew around it.
+
+![Chat](docs/screenshot-chat.jpg)
 
 ## What she does
 
 **Chat.** Real replies when online, 515 canned lines offline. Time, arithmetic, jokes, unit conversion, OCR, file sorting all work without a key — only free-form conversation needs one.
 
-**Remember you.** Your name, your cat, what you like, what you do, where you live. Across sessions. Mention you're working late and she might ask the next day how late you actually slept.
+**Remember you.** Your name, your cat, what you like, what you do, where you live. Across sessions.
+
+![Memory](docs/screenshot-memory.jpg)
 
 **Speak up.** Goes quiet for a while and she'll chime in. Hidden in the tray, she can't talk, so she sends a system notification instead.
 
@@ -42,15 +46,15 @@ So memory got the most work; everything else grew around it. Two layers: rules e
 
 **Sort files.** Point her at a folder, she groups by file type. Anything outside the whitelist stays put.
 
-**Change the wallpaper.** Video wallpapers keep playing — not a still frame. Drop your own into `ui/素材/壁纸/`.
+**Change the wallpaper.** Video wallpapers keep playing — not a still frame.
 
-**Tune the UI.** Font size 12–20, three bubble styles, four blur sliders on the features panel — drag and see it live.
+![Wallpaper](docs/screenshot-wallpaper.jpg)
 
-## Where she goes when you close the window
+## She has expressions
 
-Into the system tray. Doesn't take up space, timers and proactive messages keep running. Double-click the icon to bring her back; right-click → "let her say something" and she'll pipe up on her own.
+Twenty-nine of them, dispatched by mood. Happy gets the crescent eyes, wronged gets the wet ones, angry puffs her cheeks. Every reply picks one that matches.
 
-The tray icon is registered locally and remounts itself after Explorer restarts. If it ever goes missing from the corner, Features → About has a "Quit completely" button that doesn't depend on the tray at all.
+![Expressions](docs/screenshot-emotions.jpg)
 
 ## Three bubble styles
 
@@ -59,6 +63,8 @@ Cat ears, rounded, and frosted glass.
 The frosted one uses real `backdrop-filter` — the wallpaper moves and it moves with it, not a flat image.
 
 The cat-ear ears are SVG. The path isn't hand-drawn: the 6 control points from the Tkinter version's `create_polygon(smooth=True)` were converted to Béziers via quadratic B-spline — six curves per ear.
+
+![Personalize](docs/screenshot-ui.jpg)
 
 ## Tuning the UI
 
@@ -72,6 +78,12 @@ Features → Personalize, four sliders:
 Live while dragging, saved on release. Stored in `ui/个性化/玻璃.txt` as four integers.
 
 The default — blur 22, tint 0.26, brightness 1.12 — came from measuring against the help page text: transparency 5.8, text contrast 20,271. The panel lets the wallpaper through without losing the letters.
+
+## Self-check
+
+The About page lists ten items, so you can see at a glance what works and what's missing. After switching machines or reinstalling, one click tells you what to install.
+
+![Self-check](docs/screenshot-selfcheck.jpg)
 
 ## Stack
 
