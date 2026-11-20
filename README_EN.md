@@ -2,11 +2,11 @@
 
 # 小笨蛋 (Little Dummy)
 
-[![Release](https://img.shields.io/github/v/release/Peijy1226/xiaobendanV2.0.0?style=flat-square&cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendanV2.0.0/releases)
-[![License](https://img.shields.io/github/license/Peijy1226/xiaobendanV2.0.0?style=flat-square)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Peijy1226/xiaobendan-ai-v2.0.0?style=flat-square&cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendan-ai-v2.0.0/releases)
+[![License](https://img.shields.io/github/license/Peijy1226/xiaobendan-ai-v2.0.0?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4?style=flat-square)](#)
 [![Python](https://img.shields.io/badge/python-3.12%2B-3776ab?style=flat-square)](#)
-[![Build](https://img.shields.io/github/actions/workflow/status/Peijy1226/xiaobendanV2.0.0/build.yml?style=flat-square&label=build)](#)
+[![Build](https://img.shields.io/github/actions/workflow/status/Peijy1226/xiaobendan-ai-v2.0.0/build.yml?style=flat-square&label=build)](#)
 
 <img src="docs/avatar.png" width="120" alt="Little Dummy">
 
@@ -14,7 +14,7 @@
 
 **Not an assistant, not a robot. Open your laptop and she comes over to talk.**
 
-[Download](https://github.com/Peijy1226/xiaobendanV2.0.0/releases) · [Features](#features) · [Development](#development) · [中文](README.md)
+[Download](https://github.com/Peijy1226/xiaobendan-ai-v2.0.0/releases) · [Features](#features) · [Development](#development) · [中文](README.md)
 
 </div>
 
@@ -72,7 +72,7 @@ Twenty-nine reaction images are dispatched by the current emotional state. Each 
 
 ## Installation
 
-Download `xiaobendan-v2.0.0-win64.zip` from [Releases](https://github.com/Peijy1226/xiaobendanV2.0.0/releases) and double-click `小笨蛋.exe` after extracting.
+Download `xiaobendan-v2.0.0-win64.zip` from [Releases](https://github.com/Peijy1226/xiaobendan-ai-v2.0.0/releases) and double-click `小笨蛋.exe` after extracting.
 
 - No Python installation or runtime required
 - Approximately 415 MB extracted

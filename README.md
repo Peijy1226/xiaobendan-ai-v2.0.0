@@ -2,11 +2,11 @@
 
 # 小笨蛋
 
-[![Release](https://img.shields.io/github/v/release/Peijy1226/xiaobendanV2.0.0?style=flat-square&cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendanV2.0.0/releases)
-[![License](https://img.shields.io/github/license/Peijy1226/xiaobendanV2.0.0?style=flat-square)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Peijy1226/xiaobendan-ai-v2.0.0?style=flat-square&cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendan-ai-v2.0.0/releases)
+[![License](https://img.shields.io/github/license/Peijy1226/xiaobendan-ai-v2.0.0?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4?style=flat-square)](#)
 [![Python](https://img.shields.io/badge/python-3.12%2B-3776ab?style=flat-square)](#)
-[![Build](https://img.shields.io/github/actions/workflow/status/Peijy1226/xiaobendanV2.0.0/build.yml?style=flat-square&label=build)](#)
+[![Build](https://img.shields.io/github/actions/workflow/status/Peijy1226/xiaobendan-ai-v2.0.0/build.yml?style=flat-square&label=build)](#)
 
 <img src="docs/avatar.png" width="120" alt="小笨蛋">
 
@@ -14,7 +14,7 @@
 
 **不是助手，不是机器人。打开电脑，她就过来陪你说几句话。**
 
-[下载](https://github.com/Peijy1226/xiaobendanV2.0.0/releases) · [功能](#功能) · [开发文档](#开发文档) · [English](README_EN.md)
+[下载](https://github.com/Peijy1226/xiaobendan-ai-v2.0.0/releases) · [功能](#功能) · [开发文档](#开发文档) · [English](README_EN.md)
 
 </div>
 
@@ -72,7 +72,7 @@
 
 ## 安装
 
-从 [Releases](https://github.com/Peijy1226/xiaobendanV2.0.0/releases) 下载 `xiaobendan-v2.0.0-win64.zip`，解压后双击 `小笨蛋.exe`。
+从 [Releases](https://github.com/Peijy1226/xiaobendan-ai-v2.0.0/releases) 下载 `xiaobendan-v2.0.0-win64.zip`，解压后双击 `小笨蛋.exe`。
 
 - 无需安装 Python 或任何运行库
 - 解压后约 415 MB
