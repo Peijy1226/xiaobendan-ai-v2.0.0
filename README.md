@@ -1,141 +1,146 @@
+<div align="center">
+
 # 小笨蛋
 
-**[English](README_EN.md)** · 中文
+[![Release](https://img.shields.io/github/v/release/Peijy1226/xiaobendanV2.0.0?style=flat-square&cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendanV2.0.0/releases)
+[![License](https://img.shields.io/github/license/Peijy1226/xiaobendanV2.0.0?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4?style=flat-square)](#)
+[![Python](https://img.shields.io/badge/python-3.12%2B-3776ab?style=flat-square)](#)
+[![Build](https://img.shields.io/github/actions/workflow/status/Peijy1226/xiaobendanV2.0.0/build.yml?style=flat-square&label=build)](#)
 
-[![release](https://img.shields.io/github/v/release/Peijy1226/xiaobendanV2.0.0?cacheSeconds=3600)](https://github.com/Peijy1226/xiaobendanV2.0.0/releases)
-[![license](https://img.shields.io/github/license/Peijy1226/xiaobendanV2.0.0)](LICENSE)
-[![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4)](#)
+<img src="docs/avatar.png" width="120" alt="小笨蛋">
 
-一个住在电脑里的桌面角色。关掉窗口她还在托盘里待着，过一阵子自己会来找你说句话。
+**她叫小笨蛋。十八岁，银灰短发，兜帽罩着，住在你的电脑里。**
 
-![演示](docs/demo.gif)
+**不是助手，不是机器人。打开电脑，她就过来陪你说几句话。**
 
-## 装
+[下载](https://github.com/Peijy1226/xiaobendanV2.0.0/releases) · [功能](#功能) · [开发文档](#开发文档) · [English](README_EN.md)
 
-[Releases](https://github.com/Peijy1226/xiaobendanV2.0.0/releases) 里一个 zip，解压双击 `小笨蛋.exe`。不用装 Python，不用装运行库。
-
-第一次打开她会问你叫什么。之后她记着。
-
-![开场](docs/screenshot-intro.jpg)
-
-## 为什么会有这个
-
-本来想做个"住在电脑里的角色"，不是助手，不是工具箱。
-
-试过一堆聊天软件，都太工具了——问一句答一句，聊完就没了。我要的是那种：你昨天随口说了句在加班，第二天她会问"昨天几点睡的"。
-
-所以记忆做得最久，其他都是围着它顺手加的。
-
-![聊天](docs/screenshot-chat.jpg)
-
-## 她能干什么
-
-**聊天**。联网时真接话，离线走 515 句语料。报时、算数、讲笑话、换算、识图、整理文件这些不联网也能干，只有闲聊天要钥匙。
-
-**记住你**。名字、养的猫、喜欢什么、干什么工作、住哪儿。跨会话。
-
-![记忆](docs/screenshot-memory.jpg)
-
-**主动说话**。一阵子没聊她冒一句。藏托盘里就说不了话，改发系统通知。
-
-**念出来、听你说**。顶栏那个 🔊 让她把话念出来，edge-tts 合成，按标点切段边播边下，首声不到一秒。输入框右边 🎤 按住说话，Vosk 本地识别，不联网、不上传。
-
-**看图**。给她一张图，能提字、能认人脸上有几个、能认出来是什么东西。大图先缩再检测，七千像素的照片也不会把内存吃爆。
-
-**写东西**。记叙、议论、说明、书信，按字数档位给提示词，三百字和三千字不是一个写法。
-
-**整理文件**。挑个文件夹，按类型分组，白名单外的目录不动。
-
-**换壁纸**。视频壁纸会一直播，不是一张静图。
-
-![壁纸](docs/screenshot-wallpaper.jpg)
-
-## 她有表情
-
-二十九张，按情绪调度。开心的时候是笑眼，委屈的时候眼睛会湿，生气会鼓脸。每一次回复都会挑一张对上心情的。
-
-![表情](docs/screenshot-emotions.jpg)
-
-## 三套气泡
-
-猫耳、圆角、透光。
-
-透光那套用真 `backdrop-filter`，壁纸一动它就跟着动，不是贴图。
-
-猫耳那套的耳朵是 SVG，路径不是手画的——是把 Tkinter 版 `create_polygon(smooth=True)` 的 6 个控制点按二次 B 样条转成的贝塞尔，六条曲线拼一只耳朵。
-
-![个性化](docs/screenshot-ui.jpg)
-
-## 界面怎么调的
-
-功能 → 个性化，四个滑块：
-
-- **模糊**：0~80 px
-- **颜色浓度**：saturate 1.0~2.0
-- **亮度**：brightness 0.70~1.40
-- **底色厚度**：alpha 0~0.80
-
-拖的时候实时生效，松手才写盘。存 `ui/个性化/玻璃.txt`，四个整数。
-
-默认值 blur 22、底 0.26、亮 1.12 —— 这个组合是在帮助页文字上实测挑的：透亮度 5.8，文字对比度 20,271，面板既透得过壁纸又压得住字。
-
-## 自检
-
-关于页列了十项，一眼看出哪样能用、哪样缺东西。换电脑、重装之后点一下就知道缺什么。
-
-![自检](docs/screenshot-selfcheck.jpg)
-
-## 技术栈
-
-| 层 | 用什么 |
-|---|---|
-| 界面 | 原生 HTML/CSS/JS + WebView2 |
-| 窗口 | pywebview 6.2，无边框自绘标题栏 + DWM 系统圆角 |
-| 图像 | OpenCV 5 + onnxruntime + RapidOCR |
-| 语音合成 | edge-tts |
-| 语音识别 | Vosk 中文小模型（42 MB，本地、不联网） |
-| 托盘 | pystray |
-| 打包 | PyInstaller |
-
-**为什么没用 Electron**：一个 Electron 壳就 150 MB 起步，而这个程序的体积本来就在模型和 opencv 上。WebView2 是 Windows 自带的，零成本。
+</div>
 
 ---
 
-# 开发备忘
+## 预览
 
-## 代码结构
+![演示](docs/demo.gif)
+
+## 简介
+
+小笨蛋是一个 Windows 桌面陪伴程序。启动后常驻系统托盘，可随时呼出对话窗口；关闭窗口不会退出进程，她会继续在后台待着，隔一段时间主动说一句话。
+
+程序内置 515 句离线语料，不联网即可完成报时、算术、笑话、图像识别、文件整理等任务。配置 DeepSeek API 密钥后具备完整的自然语言对话能力。
+
+## 核心能力
+
+| 模块 | 说明 |
+|---|---|
+| **对话** | 联网调用大模型；无密钥时自动降级至本地语料库 |
+| **长期记忆** | 记录姓名、宠物、偏好、职业、城市等信息，跨会话保留 |
+| **主动消息** | 长时间无交互后主动发言；窗口隐藏时以系统通知形式推送 |
+| **语音合成** | 基于 edge-tts，按标点切分音频流，首段播放延迟低于 1 秒 |
+| **语音识别** | 基于 Vosk 中文模型，完全本地运行，音频不上传 |
+| **图像识别** | OCR 文字提取、人脸检测、物体检测，大图自动降采样 |
+| **文本生成** | 记叙、议论、说明、书信四类文体，按目标字数调整提示词 |
+| **文件整理** | 按扩展名分类归档，白名单外的目录不受影响 |
+| **壁纸** | 支持静态图片与视频壁纸 |
+| **界面** | 三套气泡样式、字号 12–20、面板模糊度四档可调 |
+
+## 界面
+
+小笨蛋提供三套气泡样式与独立的界面调节面板。以下为个性化设置页：
+
+![个性化](docs/screenshot-ui.jpg)
+
+磨砂气泡使用原生 `backdrop-filter`，壁纸移动时背景同步变化，并非静态贴图。
+
+**可调参数**
+
+| 参数 | 取值范围 | 默认值 |
+|---|---|---|
+| 模糊 | 0 – 80 px | 22 px |
+| 色彩浓度 | 1.0 – 2.0 | 1.26 |
+| 亮度 | 0.70 – 1.40 | 1.12 |
+| 底色不透明度 | 0 – 0.80 | 0.26 |
+
+调节实时生效，松手后写入 `ui/个性化/玻璃.txt`。默认值基于帮助页文字的实测对比度选定：面板透明度 5.8，文字对比度 20,271。
+
+## 情绪与表情
+
+内置 29 张表情，按当前情绪状态调度。每条回复根据心情选取对应素材，离线与联网模式下均可使用。
+
+![表情](docs/screenshot-emotions.jpg)
+
+## 安装
+
+从 [Releases](https://github.com/Peijy1226/xiaobendanV2.0.0/releases) 下载 `xiaobendan-v2.0.0-win64.zip`，解压后双击 `小笨蛋.exe`。
+
+- 无需安装 Python 或任何运行库
+- 解压后约 415 MB
+- 首次启动会引导填写名称
+
+## 配置 API 密钥（可选）
+
+未配置密钥时程序以离线模式运行，覆盖报时、算术、笑话、图像识别、文件整理等功能。如需完整对话能力：
+
+1. 访问 [platform.deepseek.com](https://platform.deepseek.com) 注册并创建 API Key
+2. 将仓库中的 `API.示例.txt` 复制为 `ui/API.txt`
+3. 在 `钥匙=` 后填写密钥，保存后重启程序
+
+费用约为每千条消息数角人民币。
+
+> `ui/API.txt` 已列入 `.gitignore`，不会被提交。
+
+## 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 界面 | 原生 HTML / CSS / JavaScript + WebView2 |
+| 窗口 | pywebview 6.2，自绘标题栏 + DWM 系统圆角 |
+| 图像 | OpenCV 5 + onnxruntime + RapidOCR |
+| 语音合成 | edge-tts |
+| 语音识别 | Vosk 中文小模型（42 MB，本地运行） |
+| 托盘 | pystray |
+| 打包 | PyInstaller |
+
+选用 WebView2 而非 Electron：Electron 运行时约 150 MB，而本程序的体积主要来自模型与 OpenCV；WebView2 为 Windows 系统组件，不额外占用空间。
+
+---
+
+# 开发文档
+
+## 目录结构
 
 ```
-main.py              入口：窗口、DWM 圆角、托盘、主动消息定时器
-api.py               前后端桥，53 个方法
+main.py              程序入口：窗口、DWM 圆角、托盘、主动消息定时器
+api.py               前后端桥接，53 个方法
 core/
-  luoji.py           逻辑层 7,700 行：对话、情绪、记忆、壁纸
-  shitu.py           识图：OCR + 人脸 + 物体
-  zhengli.py         整理助手
-  xiezuo.py          写一篇
-  dashang.py         打赏
-  tuopan.py          托盘
-  zhu_dong.py        主动消息 + 系统通知
+  luoji.py           逻辑层，约 7,700 行：对话、情绪、记忆、壁纸
+  shitu.py           图像识别：OCR、人脸、物体
+  zhengli.py         文件整理
+  xiezuo.py          文本生成
+  dashang.py         打赏页
+  tuopan.py          系统托盘
+  zhu_dong.py        主动消息与系统通知
   yuyin_shuru.py     语音输入（Vosk）
-  models/            onnx 模型（不进仓库，跑 下载模型.py）
+  models/            onnx 模型（不纳入版本控制，运行 下载模型.py 获取）
 ui/
   index.html
   css/               base / titlebar / chat / input / gongneng
   js/                bridge / bishu / chat / gongneng / input
-                     / yuyin（她说）/ yuyin_shuru（你听）
+                     / yuyin（语音合成）/ yuyin_shuru（语音输入）
   素材/              壁纸、图标、示例素材
-  表情/              29 张，按心情命名
-  语料/              515 句离线台词
+  表情/              29 张表情素材
+  语料/              515 句离线语料
   个性化/            头像、气泡偏好
-  人设.txt           ← 改她的性格
-  API.txt            ← 你的钥匙（.gitignore 掉了）
+  人设.txt           角色设定
+  API.txt            API 密钥（已列入 .gitignore）
 下载模型.py
 打包.spec
 ```
 
-三层：页面（HTML/CSS/JS）→ 桥（`api.py` 每个方法对应前端一个 `Qiao.xxx()`）→ 逻辑（`core/luoji.py`）。
+三层结构：页面（HTML/CSS/JS）→ 桥接层（`api.py` 中每个方法对应前端一个 `Qiao.xxx()`）→ 逻辑层（`core/luoji.py`）。
 
-## 本地跑
+## 本地运行
 
 ```bash
 pip install -r requirements.txt
@@ -143,9 +148,9 @@ python 下载模型.py
 python main.py
 ```
 
-`--debug` 开 F12，`--自检` 不开窗口只写环境清单。
+启动参数：`--debug` 开启开发者工具，`--自检` 不开窗口仅输出环境报告。
 
-`vendor/` 是我把 pystray / sounddevice / vosk 单独装的地方，为了系统 site-packages 干净。不是必须的，代码两个位置都找。要用就：
+`vendor/` 目录用于单独安装 pystray、sounddevice、vosk，以保持系统 site-packages 干净。该目录非必需，代码在两个位置都会查找。如需使用：
 
 ```bash
 pip install --target vendor pystray sounddevice vosk srt requests tqdm
@@ -157,45 +162,30 @@ pip install --target vendor pystray sounddevice vosk srt requests tqdm
 python -m PyInstaller 打包.spec --noconfirm
 ```
 
-产物 416 MB。**大头不是我的代码**：
+输出约 416 MB，其中绝大部分为第三方依赖：
 
-| 什么 | 多大 |
+| 组件 | 体积 |
 |---|---|
-| opencv（`cv2.pyd`） | 82 MB |
+| OpenCV（`cv2.pyd`） | 82 MB |
 | Vosk 中文模型 | 66 MB |
-| yolox onnx | 35 MB |
+| yolox onnx 模型 | 35 MB |
 
-我的代码加起来不到 1 MB。
+程序自身代码不足 1 MB。
 
-打包完记得手动 `cp -r ui dist/小笨蛋/` —— ui 不打进 exe，为的是用户能自己换壁纸贴表情。
+打包后需手动执行 `cp -r ui dist/小笨蛋/`。`ui` 目录不与 exe 打包在一起，以便用户自行更换壁纸与表情。
 
-## 改她的性格
+## 定制
 
-`ui/人设.txt`，改完重启生效。
+**角色设定** — 修改 `ui/人设.txt`，重启生效。该文件定义角色身份、说话风格、回避话题及未知问题的处理方式，提示词由该文件拼装生成。
 
-里面写着：她是谁、说话什么调子、哪些话题不接、遇到不认识的怎么糊过去。提示词是按这个文件拼的，改一行就换一种人。
+**离线语料** — `ui/语料/*.txt`，每行一句。启动时全部载入内存，现有 515 句仅占数十 KB。
 
-## 加台词
+**表情素材** — `ui/表情/灵光/` 与 `ui/表情/离线/`，文件名为情绪标识（平静、开心、兴奋、得意、委屈、困惑、关心）。新增文件会被自动识别，缺失则不显示。
 
-`ui/语料/*.txt`，一行一句。启动时全部读进内存，515 句现在只占几十 KB，加几千句也不卡。
-
-## 换表情
-
-`ui/表情/灵光/` 和 `ui/表情/离线/`，文件名就是心情：平静、开心、兴奋、得意、委屈、困惑、关心。多了会自动认，缺了就不显示。
-
-## 发布
-
-打 tag 推上去，GitHub Actions 会自动在 Windows 机器上编译并挂到 Release：
-
-```bash
-git tag v2.1.0
-git push origin v2.1.0
-```
-
-配置在 `.github/workflows/build.yml`，约 10 分钟出包。
+**壁纸** — 放入 `ui/素材/壁纸/`。
 
 ---
 
-## License
+## 许可
 
 MIT
